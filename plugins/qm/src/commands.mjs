@@ -13,6 +13,8 @@ export function parseCommand(raw = '') {
   if (/^clear$/i.test(args)) return { type: 'clear' };
   if (/^undo$/i.test(args)) return { type: 'undo' };
   if (/^recover$/i.test(args)) return { type: 'recover' };
+  if (/^web$/i.test(args)) return { type: 'web' };
+  if (/^(?:web\s+stop)$/i.test(args)) return { type: 'web-stop' };
   const lang = /^lang(?:uage)?\s+(en|tr)$/i.exec(args);
   if (lang) return { type: 'lang', code: lang[1].toLowerCase() };
   if (/^next$/i.test(args)) return { type: 'next' };
@@ -69,5 +71,7 @@ export const HELP = [
   '/qm clear | undo         Clear pending tasks or undo last edit',
   '/qm recover              Recover an in-flight task after a host crash',
   '/qm lang tr | en         Change panel language (Turkish / English)',
+  '/qm web                  Launch local browser dashboard with drag and multi-select',
+  '/qm web stop             Shut down the local dashboard',
   '/qm -- <text>            Queue literal text (reserved command words)'
 ].join('\n');

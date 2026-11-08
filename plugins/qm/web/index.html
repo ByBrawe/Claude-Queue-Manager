@@ -1,0 +1,38 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <meta name="color-scheme" content="dark" />
+  <meta name="referrer" content="no-referrer" />
+  <title>QM · Queue Manager</title>
+  <link rel="stylesheet" href="/style.css" />
+  <script src="/app.js" defer></script>
+</head>
+<body>
+  <main class="app">
+    <header class="topbar">
+      <div class="brand"><div class="logo">Q<span>M</span></div><div><strong>Queue Manager</strong><div class="small muted">Claude Code · Local dashboard</div></div></div>
+      <div class="top-actions"><span class="secure" id="conn">● Connecting</span><select id="locale" aria-label="Language"><option value="en">English</option><option value="tr">Türkçe</option></select></div>
+    </header>
+    <section class="hero"><div><div class="eyebrow">QUEUE OPERATIONS</div><h1 id="headline">One task at a time.</h1><p id="subtitle">Your current Claude task keeps running. Future tasks wait their turn.</p></div><div class="hero-icon">↳</div></section>
+    <section class="metrics" aria-label="Queue status"><div class="metric"><span id="metric-pending">PENDING</span><strong id="pending-count">—</strong></div><div class="metric"><span id="metric-active">ACTIVE</span><strong id="active-count">—</strong></div><div class="metric"><span id="metric-done">COMPLETED</span><strong id="done-count">—</strong></div><div class="metric"><span id="metric-mode">QUEUE STATUS</span><strong id="status">—</strong></div></section>
+    <section class="workspace">
+      <div class="left">
+        <div class="section-header"><div><span class="eyebrow" id="eyebrow-tasks">TASK BACKLOG</span><h2 id="tasks-title">Pending tasks <span id="selected-badge"></span></h2></div><div class="subactions"><button id="toggle-pause" class="btn soft">Pause</button><button id="undo-selection" class="btn soft" title="Clear selection">Clear selection</button></div></div>
+        <div class="toolbar"><input id="search" aria-label="Search tasks" type="search" placeholder="Filter tasks..." /><button id="select-all" class="btn soft">Select visible</button><span id="drag-tip" class="hint">Drag ⠿ to reorder</span></div>
+        <div id="batch-actions" class="batch-actions hidden"><strong id="selected-label">0 selected</strong><button id="move-top" class="btn soft">↑ Top</button><button id="move-bottom" class="btn soft">↓ Bottom</button><button id="delete-selected" class="btn danger">Delete selected</button></div>
+        <div id="task-list" class="task-list"><p class="empty">Connecting to Claude Code…</p></div>
+        <footer class="queue-footer"><span id="queue-count">Waiting for session</span><span id="queue-hint">Drag multiple selected rows together</span></footer>
+      </div>
+      <aside class="right">
+        <div class="card"><div class="eyebrow" id="eyebrow-active">CURRENT TURN</div><h3 id="active-title">No active queue task</h3><p class="muted small" id="active-subtitle">The browser cannot interrupt your running task.</p></div>
+        <div class="card"><div class="eyebrow" id="eyebrow-add">ADD TASKS</div><h3 id="add-title">Batch entry</h3><p class="muted small" id="add-help">Paste one task per line or separate with ||.</p><textarea id="tasks-input" rows="5" placeholder="Fix tests&#10;Run build&#10;Update README"></textarea><button id="add-tasks" class="btn primary full">+ Add to queue</button><p class="muted tiny" id="limit">Up to 200 per addition • 500 pending total</p></div>
+        <div class="card note"><div class="eyebrow" id="eyebrow-privacy">LOCAL ONLY</div><p id="privacy">This dashboard runs on 127.0.0.1. The queue stays inside your Claude Code session. No cloud relay.</p></div>
+      </aside>
+    </section>
+    <div id="toast" role="status" aria-live="polite"></div>
+    <div id="overlay" class="overlay hidden" role="dialog" aria-modal="true" aria-labelledby="confirm-title"><div class="dialog"><h3 id="confirm-title">Delete selected tasks?</h3><p id="confirm-text">Only selected pending tasks will be removed. The active task is untouched.</p><div class="dialog-actions"><button class="btn soft" id="cancel-confirm">Cancel</button><button class="btn danger" id="confirm-delete">Delete</button></div></div></div>
+  </main>
+</body>
+</html>

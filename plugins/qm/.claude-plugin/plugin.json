@@ -1,8 +1,11 @@
 {
   "name": "qm",
-  "version": "0.2.0",
-  "description": "Queue Manager for Claude Code Desktop: /qm panel, bulk prompts, repeated tasks, FIFO turns",
-  "author": { "name": "ByBrawe", "url": "https://github.com/ByBrawe" },
+  "version": "0.3.0",
+  "description": "Claude Code queue with /qm native UI, multi-select, batch/repeat and local web drag-and-drop",
+  "author": {
+    "name": "ByBrawe",
+    "url": "https://github.com/ByBrawe"
+  },
   "homepage": "https://github.com/ByBrawe/Claude-Queue-Manager",
   "repository": "https://github.com/ByBrawe/Claude-Queue-Manager",
   "license": "MIT"

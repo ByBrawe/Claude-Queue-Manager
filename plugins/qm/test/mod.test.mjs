@@ -167,3 +167,80 @@ test('panel paste, repeat, search, language and confirm-to-clear work', async ()
   assert.equal(state.pending.length, 0);
   assert.equal(h.sent.length, 0);
 });
+
+test('native panel multi-selection moves group and requires confirmation for delete', async () => {
+  const h=fakeHost();
+  await h.emit('session.start');
+  await h.emit('command.run',{args:'pause'},{command:'qm'});
+  await h.emit('command.run',{args:'batch alpha || beta || gamma || delta'},{command:'qm'});
+  let ui=await panel(h);
+  await controls(ui,x=>x.key==='qm-check-1')[0].onPress();
+  ui=await panel(h);
+  await controls(ui,x=>x.key==='qm-check-3')[0].onPress();
+  ui=await panel(h);
+  await controls(ui,x=>x.key==='qm-move-bottom')[0].onPress();
+  let state=[...h.memory.entries()].find(([key])=>key.includes(':queue:'))[1];
+  assert.deepEqual(state.pending.map(x=>x.text),['beta','delta','alpha','gamma']);
+  ui=await panel(h);
+  await controls(ui,x=>x.key==='qm-remove-group')[0].onPress();
+  state=[...h.memory.entries()].find(([key])=>key.includes(':queue:'))[1];
+  assert.equal(state.pending.length,4);
+  ui=await panel(h);
+  await controls(ui,x=>x.key==='qm-remove-group')[0].onPress();
+  state=[...h.memory.entries()].find(([key])=>key.includes(':queue:'))[1];
+  assert.deepEqual(state.pending.map(x=>x.text),['beta','delta']);
+  assert.equal(h.sent.length,0);
+});
+
+test('web bridge applies a browser reorder to real session queue before resuming FIFO', async t => {
+  const { createDashboard } = await import('../web/server.mjs');
+  const h = fakeHost();
+  let server; let tick; let copied = '';
+  h.tools.plugin = { root: '/fake/plugin' };
+  h.tools.ui.copy = async url => { copied = url; };
+  h.tools.clock.sleep = async () => {};
+  h.tools.clock.every = (ms, callback) => { tick = callback; return {cancel: () => {}}; };
+  h.tools.process = { run: async argv => {
+    if (argv[3]?.endsWith('/web/server.mjs')) {
+      server = createDashboard({ port: Number(argv[4]), token: argv[5] });
+      await server.listen();
+    }
+    return {exitCode:0,stdout:'',stderr:''};
+  } };
+  h.tools.http = { fetch: async (url, init = {}) => {
+    const response = await fetch(url,init);
+    return {ok:response.ok,status:response.status,text:await response.text()};
+  } };
+  t.after(async () => { if (server) await server.close(); });
+  await h.emit('session.start');
+  await h.emit('command.run',{args:'pause'},{command:'qm'});
+  await h.emit('command.run',{args:'batch alpha || beta || gamma'},{command:'qm'});
+  const launch = await h.emit('command.run',{args:'web'},{command:'qm'});
+  assert.match(launch.text,/127\.0\.0\.1/);
+  assert.doesNotMatch(launch.text,/token=/);
+  assert.match(copied,/token=[0-9a-f]+/);
+  const u = new URL(copied);
+  const tok = new URLSearchParams(u.hash.slice(1)).get('token');
+  const getState = async () => (await (await fetch(u.origin+'/api/state',{headers:{'x-qm-token':tok}})).json());
+  let state = await getState();
+  assert.deepEqual(state.state.pending.map(x=>x.text),['alpha','beta','gamma']);
+  const ids=state.state.pending.map(x=>x.id);
+  const reorder=await fetch(u.origin+'/api/action',{
+    method:'POST',headers:{'x-qm-token':tok,'content-type':'application/json'},
+    body:JSON.stringify({revision:state.revision,operation:{type:'reorder',ids:[ids[1],ids[0],ids[2]]}})
+  });
+  assert.equal(reorder.status,202);
+  await tick();
+  state = await getState();
+  assert.equal(state.lastAck.ok,true);
+  assert.deepEqual(state.state.pending.map(x=>x.text),['beta','alpha','gamma']);
+  const resume=await fetch(u.origin+'/api/action',{
+    method:'POST',headers:{'x-qm-token':tok,'content-type':'application/json'},
+    body:JSON.stringify({revision:state.revision,operation:{type:'resume'}})
+  });
+  assert.equal(resume.status,202);
+  await tick(); await flush();
+  assert.deepEqual(h.sent.map(x=>x.text),['beta']);
+  const stopped=await h.emit('command.run',{args:'web stop'},{command:'qm'});
+  assert.match(stopped.text,/stopped/);
+});

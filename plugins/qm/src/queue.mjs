@@ -114,3 +114,41 @@ export function recover(state) {
   const { startedAt, ...task } = state.running;
   return { ...state, running: null, busy: false, paused: true, pending: [task, ...state.pending] };
 }
+
+/** Remove a chosen group by stable task ID. Never touches the active task. */
+export function removeByIds(state, ids) {
+  if (!Array.isArray(ids) || !ids.length || ids.some(id => !Number.isSafeInteger(id))) {
+    throw new Error('Select one or more pending tasks');
+  }
+  const wanted = new Set(ids);
+  if (wanted.size !== ids.length || !ids.every(id => state.pending.some(task => task.id === id))) {
+    throw new Error('Selection is stale; refresh the queue');
+  }
+  return snapshot(state, { ...state, pending: state.pending.filter(task => !wanted.has(task.id)) });
+}
+
+/** Apply a full pending-only permutation, for drag and multi-select reorder. */
+export function reorderByIds(state, ids) {
+  if (!Array.isArray(ids) || ids.length !== state.pending.length ||
+      ids.some(id => !Number.isSafeInteger(id))) {
+    throw new Error('New order must contain every pending task');
+  }
+  const byId = new Map(state.pending.map(task => [task.id, task]));
+  if (new Set(ids).size !== ids.length || ids.some(id => !byId.has(id))) {
+    throw new Error('New order is stale or has duplicate IDs');
+  }
+  if (ids.every((id, i) => id === state.pending[i].id)) return state;
+  return snapshot(state, { ...state, pending: ids.map(id => byId.get(id)) });
+}
+
+/** Keep the relative order of selected items while moving the group. */
+export function moveSelected(state, ids, placement = 'front') {
+  if (!['front', 'back'].includes(placement)) throw new Error('Invalid group position');
+  const wanted = new Set(ids);
+  if (!ids.length || ids.length !== wanted.size || ids.some(id => !state.pending.some(t => t.id === id))) {
+    throw new Error('Selection is stale; refresh the queue');
+  }
+  const selected = state.pending.filter(t => wanted.has(t.id)).map(t => t.id);
+  const remaining = state.pending.filter(t => !wanted.has(t.id)).map(t => t.id);
+  return reorderByIds(state, placement === 'front' ? [...selected, ...remaining] : [...remaining, ...selected]);
+}
