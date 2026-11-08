@@ -2,19 +2,21 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { register } from '../hooks/register.mjs';
 
+let fakeSessionSequence = 0;
 function fakeHost() {
+  const sessionId = `test-session-${++fakeSessionSequence}`;
   const handlers = [];
   const memory = new Map();
   const sent = [];
   const tools = {
-    session: { id: async () => 'session-1' },
+    session: { id: async () => sessionId },
     store: { get: async key => memory.get(key), set: async (key, value) => { memory.set(key, structuredClone(value)); } },
     clock: { now: async () => Date.now() },
     ui: {
       invalidate: () => {}, toast: () => {}, log: () => {},
       open: async () => {},
       resolve: () => ({
-        Box: x => x, Text: x => x, Button: x => x, Input: x => x
+        Box: x => x, Text: x => x, Button: x => x, Input: x => x, Select: x => x
       })
     },
     command: { register: async () => {} },
@@ -93,5 +95,75 @@ test('empty /qm opens panel and /qm help works without model calls', async () =>
   assert.deepEqual(await h.emit('command.run', { args: '' }, { command: 'qm' }), {});
   const result = await h.emit('command.run', { args: 'help' }, { command: 'qm' });
   assert.match(result.text, /repeat/);
+  assert.equal(h.sent.length, 0);
+});
+
+function controls(tree, predicate, output = []) {
+  if (!tree || typeof tree !== 'object') return output;
+  if (predicate(tree)) output.push(tree);
+  for (const child of tree.children ?? []) controls(child, predicate, output);
+  return output;
+}
+
+async function panel(host) {
+  return host.emit('ui.render', { props: {} }, { component: 'Pane', requestId: 'qm' });
+}
+
+test('TUI/desktop panel renders controls and queue content without model calls', async () => {
+  const h = fakeHost();
+  await h.emit('session.start');
+  await h.emit('command.run', { args: 'pause' }, { command: 'qm' });
+  await h.emit('command.run', { args: 'batch fix bug || run tests' }, { command: 'qm' });
+  const ui = await panel(h);
+  const inputs = controls(ui, x => x.key?.startsWith('qm-') && typeof x.onInput === 'function');
+  const buttons = controls(ui, x => x.key?.startsWith('qm-') && typeof x.onPress === 'function');
+  assert.ok(inputs.some(x => x.key === 'qm-add-tasks'));
+  assert.ok(inputs.some(x => x.key === 'qm-repeat-tasks'));
+  assert.ok(inputs.some(x => x.key === 'qm-search'));
+  assert.ok(buttons.some(x => x.key === 'qm-edit-1'));
+  assert.ok(buttons.some(x => x.key === 'qm-rm-2'));
+  assert.ok(buttons.some(x => x.key === 'qm-toggle'));
+  assert.equal(h.sent.length, 0);
+  await buttons.find(x => x.key === 'qm-edit-1').onPress();
+  const editUi = await panel(h);
+  assert.ok(controls(editUi, x => x.key === 'qm-edit-input').length);
+  const save = controls(editUi, x => x.key === 'qm-save-edit')[0];
+  const input = controls(editUi, x => x.key === 'qm-edit-input')[0];
+  input.onInput('fix the real bug');
+  await save.onPress();
+  const state = [...h.memory.entries()].find(([key]) => key.includes(':queue:'))[1];
+  assert.equal(state.pending[0].text, 'fix the real bug');
+});
+
+test('panel paste, repeat, search, language and confirm-to-clear work', async () => {
+  const h = fakeHost();
+  await h.emit('session.start');
+  await h.emit('command.run', { args: 'pause' }, { command: 'qm' });
+  let ui = await panel(h);
+  const add = controls(ui, x => x.key === 'qm-add-tasks')[0];
+  await add.onSubmit('alpha\nbeta\ngamma');
+  ui = await panel(h);
+  const repeat = controls(ui, x => x.key === 'qm-repeat-tasks')[0];
+  await repeat.onSubmit('3 | continue');
+  let state = [...h.memory.entries()].find(([key]) => key.includes(':queue:'))[1];
+  assert.deepEqual(state.pending.map(x => x.text), ['alpha','beta','gamma','continue','continue','continue']);
+  const search = controls(ui, x => x.key === 'qm-search')[0];
+  search.onInput('beta');
+  ui = await panel(h);
+  const rows = controls(ui, x => String(x.key).startsWith('qm-task-'));
+  assert.equal(rows.length, 1);
+  const select = controls(ui, x => x.key === 'qm-language')[0];
+  await select.onSelect('tr');
+  assert.equal(h.memory.get('claude-queue-manager:prefs:locale'), 'tr');
+  ui = await panel(h);
+  assert.ok(controls(ui, x => x.key === 'qm-clear')[0].label.includes('Bekleyenleri'));
+  const clear = controls(ui, x => x.key === 'qm-clear')[0];
+  await clear.onPress();
+  state = [...h.memory.entries()].find(([key]) => key.includes(':queue:'))[1];
+  assert.equal(state.pending.length, 6, 'first click must not delete anything');
+  ui = await panel(h);
+  await controls(ui, x => x.key === 'qm-clear')[0].onPress();
+  state = [...h.memory.entries()].find(([key]) => key.includes(':queue:'))[1];
+  assert.equal(state.pending.length, 0);
   assert.equal(h.sent.length, 0);
 });

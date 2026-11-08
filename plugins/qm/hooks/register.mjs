@@ -4,14 +4,23 @@
 import { initialState, normalizeState, enqueue, remove, move, edit, clear, undo,
   canStart, claim, completeTurn, rejectSubmission, recover } from '../src/queue.mjs';
 import { parseCommand, HELP } from '../src/commands.mjs';
+import { uiStrings, filteredPage, parseRepeatForm, splitPaste, SUPPORTED_UI_LANGUAGES } from '../src/view.mjs';
 
 const PANE_ID = 'qm';
 const STORE_PREFIX = 'claude-queue-manager:queue:';
-const MAX_PAGE = 20;
+const MAX_PAGE = 12;
 let cached = null;
 let cachedSessionId = null;
 let chain = Promise.resolve();
 let page = 0;
+let language = 'en';
+let searchText = '';
+let bulkDraft = '';
+let repeatDraft = '';
+let editDraft = '';
+let editId = null;
+let clearArmed = false;
+const PREFS_KEY = 'claude-queue-manager:prefs:locale';
 
 function exclusive(work) {
   const next = chain.then(work, work);
@@ -79,6 +88,12 @@ async function perform($, text) {
     return '';
   }
   if (intent.type === 'help') return HELP;
+  if (intent.type === 'lang') {
+    language = intent.code;
+    await $.store.set(PREFS_KEY, language);
+    $.ui.invalidate('ui.render');
+    return `QM: language set to ${language}`;
+  }
   if (intent.type === 'next') {
     const state = await change($, state => ({ ...state, paused: false }));
     scheduleNext($);
@@ -110,76 +125,172 @@ async function safePerform($, args) {
 }
 
 const shortened = (text, limit = 92) => text.length <= limit ? text : text.slice(0, limit - 3) + '...';
-function textNode(Text, value, other = {}) { return Text({ ...other, children: [String(value)] }); }
+const node = (Text, value, props = {}) => Text({ ...props, children: [String(value)] });
+const block = (Box, children, props = {}) => Box({ flexDirection: 'column', rowGap: 1, ...props, children });
+const button = (Button, key, label, onPress, extra = {}) => Button({ key, label, onPress, ...extra });
+
+function status(state, t) {
+  return state.paused ? t.paused : state.running ? t.running : state.busy ? t.working : t.ready;
+}
+
+function redraw($) { $.ui.invalidate('ui.render'); }
+function notify($, result) { if (result) $.ui.toast(result); }
+async function act($, command) {
+  clearArmed = false;
+  const result = await safePerform($, command);
+  notify($, result);
+  redraw($);
+  return result;
+}
 
 async function drawBand($, e, next) {
   if (e.props.hasSurvey) return next(e);
   const state = await load($);
   if (!state.pending.length && !state.running) return next(e);
+  const t = uiStrings(language);
   const { Box, Text, Button } = $.ui.resolve(e);
-  const label = state.paused ? 'PAUSED' : state.running ? 'RUNNING' : 'WAITING';
-  const nextName = state.pending.length ? shortened(state.pending[0].text, 45) : 'Last task running';
+  const nextName = state.pending.length ? shortened(state.pending[0].text, 45) : (state.running ? t.running : t.ready);
   return Box({ flexDirection: 'row', columnGap: 2, children: [
-    textNode(Text, ` QM ${label} `, { color: state.paused ? 'yellow' : 'cyan', bold: true }),
-    textNode(Text, `${state.pending.length} queued | ${nextName}`, { wrap: 'truncate-end', dimColor: true }),
-    Button({ key: 'qm-open', label: 'Manage', plain: true,
-      onPress: () => $.ui.open({ id: PANE_ID, title: 'Queue Manager', focus: true, closeOnEscape: true }) })
+    node(Text, ` QM ${status(state, t)} `, { color: state.paused ? 'yellow' : 'cyan', bold: true }),
+    node(Text, `${state.pending.length} ${t.pending} | ${nextName}`, { wrap: 'truncate-end', dimColor: true }),
+    button(Button, 'qm-open', 'QM', () => $.ui.open({ id: PANE_ID, title: 'Queue Manager', focus: true, closeOnEscape: true }), { plain: true })
   ] });
 }
 
 async function drawPane($, e) {
-  const { Box, Text, Button, Input } = $.ui.resolve(e);
+  const { Box, Text, Button, Input, Select } = $.ui.resolve(e);
+  const t = uiStrings(language);
   const state = await load($);
-  const pages = Math.max(1, Math.ceil(state.pending.length / MAX_PAGE));
-  page = Math.min(page, pages - 1);
-  const start = page * MAX_PAGE;
-  const actions = [
-    Button({ key: 'qm-pause', label: state.paused ? 'Resume' : 'Pause',
-      onPress: async () => { await safePerform($, state.paused ? 'resume' : 'pause'); } }),
-    Button({ key: 'qm-undo', label: 'Undo', onPress: async () => {
-      const result = await safePerform($, 'undo'); if (result.startsWith('QM error')) $.ui.toast(result);
-    } }),
-    Button({ key: 'qm-clear', label: 'Clear pending', onPress: async () => {
-      const result = await safePerform($, 'clear'); if (result.startsWith('QM error')) $.ui.toast(result);
-    } })
-  ];
-  const taskRows = state.pending.slice(start, start + MAX_PAGE).map((task, index) => {
-    const n = start + index + 1;
-    return Box({ key: 'qm-row-' + task.id, flexDirection: 'row', columnGap: 1, children: [
-      textNode(Text, `${n}. ${shortened(task.text, 85)}`, { wrap: 'truncate-end' }),
-      Button({ key: 'qm-up-' + task.id, label: '^', plain: true, onPress: () => safePerform($, `mv ${n} ${n - 1}`) }),
-      Button({ key: 'qm-down-' + task.id, label: 'v', plain: true, onPress: () => safePerform($, `mv ${n} ${n + 1}`) }),
-      Button({ key: 'qm-rm-' + task.id, label: 'x', plain: true, onPress: () => safePerform($, `rm ${n}`) })
+  const view = filteredPage(state.pending, searchText, page, MAX_PAGE);
+  page = view.page;
+
+  const title = node(Text, `${t.title}   |   ${status(state, t)}`, {
+    color: state.paused ? 'yellow' : state.running ? 'green' : 'cyan', bold: true
+  });
+  const stats = node(Text, `${state.pending.length} ${t.pending}   •   ${state.done.length} ${t.finished}`, { dimColor: true });
+  const active = state.running
+    ? node(Text, `▶ ${t.active}: #${state.running.id} ${shortened(state.running.text, 115)}`, { color: 'green' })
+    : node(Text, state.busy ? t.waiting : t.noActive, { dimColor: true });
+
+  const actionRow = Box({ flexDirection: 'row', columnGap: 1, children: [
+    button(Button, 'qm-toggle', state.paused ? t.resume : t.pause,
+      () => act($, state.paused ? 'resume' : 'pause')),
+    button(Button, 'qm-undo', t.undo, () => act($, 'undo'), { disabled: !state.undo.length }),
+    button(Button, 'qm-clear', clearArmed ? t.confirmClear : t.clear, async () => {
+      if (!clearArmed) { clearArmed = true; redraw($); return; }
+      await act($, 'clear');
+    }, { disabled: !state.pending.length }),
+    ...(clearArmed ? [button(Button, 'qm-cancel', t.cancel, () => { clearArmed = false; redraw($); })] : [])
+  ] });
+  const confirmNotice = clearArmed ? node(Text, t.clearWarn, { color: 'yellow' }) : null;
+
+  const langControl = Select
+    ? Select({ key: 'qm-language', label: t.language, options: SUPPORTED_UI_LANGUAGES,
+      value: language, onSelect: async value => { await act($, `lang ${value}`); } })
+    : node(Text, `${t.language}: ${language}`);
+
+  async function queuePasted(value) {
+    const items = splitPaste(value);
+    if (!items.length) return;
+    const result = await act($, `batch ${items.join(' || ')}`);
+    if (!result.startsWith('QM error:')) { bulkDraft = ''; redraw($); }
+  }
+  async function queueRepeated(value) {
+    try {
+      const { count, task } = parseRepeatForm(value);
+      const result = await act($, `repeat ${count} ${task}`);
+      if (!result.startsWith('QM error:')) { repeatDraft = ''; redraw($); }
+    } catch { $.ui.toast(t.invalidRepeat); }
+  }
+  const pasteInput = Input
+    ? Input({ key: 'qm-add-tasks', label: t.add, rows: 3, value: bulkDraft,
+      placeholder: t.addHint, onInput: value => { bulkDraft = String(value ?? ''); },
+      onSubmit: queuePasted })
+    : node(Text, '/qm batch task 1 || task 2');
+
+  const repeatInput = Input
+    ? Input({ key: 'qm-repeat-tasks', label: t.repeat, value: repeatDraft,
+      placeholder: t.repeatHint, onInput: value => { repeatDraft = String(value ?? ''); },
+      onSubmit: queueRepeated })
+    : node(Text, '/qm repeat 5 continue');
+
+  const search = Input
+    ? Input({ key: 'qm-search', label: t.search, value: searchText,
+      onInput: value => { searchText = String(value ?? ''); page = 0; redraw($); } })
+    : node(Text, `${t.search}: ${searchText}`);
+
+  const rows = view.rows.map(task => {
+    const activeEdit = editId === task.id;
+    return Box({ key: `qm-task-${task.id}`, flexDirection: 'row', columnGap: 1, children: [
+      node(Text, `${task.position}. ${shortened(task.text, 92)}`, {
+        color: activeEdit ? 'cyan' : undefined, bold: activeEdit, wrap: 'truncate-end'
+      }),
+      button(Button, `qm-edit-${task.id}`, t.select, () => {
+        editId = task.id; editDraft = task.text; redraw($);
+      }, { plain: true }),
+      button(Button, `qm-up-${task.id}`, '↑', () => act($, `mv ${task.position} ${task.position - 1}`),
+        { plain: true, disabled: task.position <= 1 }),
+      button(Button, `qm-down-${task.id}`, '↓', () => act($, `mv ${task.position} ${task.position + 1}`),
+        { plain: true, disabled: task.position >= state.pending.length }),
+      button(Button, `qm-rm-${task.id}`, '×', () => act($, `rm ${task.position}`), { plain: true })
     ] });
   });
-  const pageBar = Box({ flexDirection: 'row', columnGap: 2, children: [
-    Button({ key: 'qm-prev', label: 'Prev', onPress: () => { page = Math.max(0, page - 1); $.ui.invalidate('ui.render'); } }),
-    textNode(Text, `Page ${page + 1}/${pages}`),
-    Button({ key: 'qm-next-page', label: 'Next', onPress: () => { page = Math.min(pages - 1, page + 1); $.ui.invalidate('ui.render'); } })
+
+  const editPosition = state.pending.findIndex(task => task.id === editId);
+  const editing = editPosition < 0 ? null : state.pending[editPosition];
+  const editBox = editing
+    ? block(Box, [
+        node(Text, `${t.selected}: #${editPosition + 1}`, { color: 'cyan' }),
+        ...(Input ? [Input({ key: 'qm-edit-input', label: t.edit, value: editDraft,
+          onInput: value => { editDraft = String(value ?? ''); },
+          onSubmit: async value => {
+            const position = (await load($)).pending.findIndex(task => task.id === editId) + 1;
+            if (!position) return;
+            const result = await act($, `edit ${position} ${value}`);
+            if (!result.startsWith('QM error:')) { editId = null; editDraft = ''; }
+          }
+        })] : []),
+        Box({ flexDirection: 'row', columnGap: 1, children: [
+          button(Button, 'qm-save-edit', t.save, async () => {
+            const position = (await load($)).pending.findIndex(task => task.id === editId) + 1;
+            if (!position) return;
+            const result = await act($, `edit ${position} ${editDraft}`);
+            if (!result.startsWith('QM error:')) { editId = null; editDraft = ''; redraw($); }
+          }),
+          button(Button, 'qm-cancel-edit', t.cancel, () => { editId = null; editDraft = ''; redraw($); })
+        ] })
+      ])
+    : node(Text, t.editHint, { dimColor: true });
+
+  const pages = Box({ flexDirection: 'row', columnGap: 2, children: [
+    button(Button, 'qm-prev', t.prev, () => { page = Math.max(0, page - 1); redraw($); }, { disabled: page === 0 }),
+    node(Text, `${t.page} ${page + 1}/${view.totalPages}  ·  ${view.totalMatches} ${t.match}`),
+    button(Button, 'qm-next-page', t.next, () => { page = Math.min(view.totalPages - 1, page + 1); redraw($); },
+      { disabled: page === view.totalPages - 1 })
   ] });
-  const input = Input ? Input({ key: 'qm-batch', label: 'Add tasks', rows: 3, value: '',
-    placeholder: 'One task per line or separate with ||', submitLabel: 'Queue',
-    onSubmit: async value => {
-      const str = String(value ?? '').trim();
-      if (!str) return;
-      const cmd = str.includes('\n') || /\s\|\|\s/.test(str) ? `batch ${str}` : `add ${str}`;
-      const result = await safePerform($, cmd);
-      $.ui.toast(result);
-    } }) : textNode(Text, 'Use /qm batch task1 || task2 to add tasks');
-  return Box({ flexDirection: 'column', rowGap: 1, children: [
-    textNode(Text, `QUEUE MANAGER | ${state.paused ? 'PAUSED' : state.running ? 'RUNNING' : 'READY'} | ${state.pending.length} pending | ${state.done.length} recent done`, { bold: true }),
-    state.running ? textNode(Text, `Active: ${shortened(state.running.text)}`, { color: 'green' }) : textNode(Text, 'Each task starts as a separate turn after the previous task finishes.', { dimColor: true }),
-    Box({ flexDirection: 'row', columnGap: 2, children: actions }),
-    input,
-    ...taskRows,
-    pageBar,
-    textNode(Text, '/qm repeat 100 continue | /qm edit 2 task | /qm help', { dimColor: true })
-  ] });
+  const recent = state.done.length
+    ? node(Text, `✓ ${t.done}: ${state.done.slice(0, 2).map(x => shortened(x.text, 45)).join(' · ')}`, { dimColor: true })
+    : null;
+  const recover = state.running
+    ? button(Button, 'qm-recover', t.recover, () => act($, 'recover'), { plain: true })
+    : null;
+
+  return block(Box, [
+    Box({ flexDirection: 'row', columnGap: 2, children: [title, langControl] }), stats, active,
+    node(Text, t.oneAtTime, { dimColor: true }), actionRow, ...(confirmNotice ? [confirmNotice] : []),
+    pasteInput, button(Button, 'qm-add-action', t.addButton, () => queuePasted(bulkDraft)),
+    repeatInput, button(Button, 'qm-repeat-action', t.repeatButton, () => queueRepeated(repeatDraft)),
+    search,
+    ...(view.rows.length ? rows : [node(Text, state.pending.length ? t.noMatch : t.empty, { dimColor: true })]),
+    pages, editBox, ...(recent ? [recent] : []), ...(recover ? [recover] : []),
+    node(Text, t.help, { dimColor: true })
+  ]);
 }
 
 export function register(on) {
   on('session.start', async ($, e, next) => {
     await load($);
+    try { language = (await $.store.get(PREFS_KEY)) === 'tr' ? 'tr' : 'en'; } catch {}
     try {
       await $.command.register({ name: 'qm', description: 'Queue Manager: run tasks one by one without steering',
         argumentHint: 'add | batch | repeat | list | pause | resume | mv | edit', immediate: true });

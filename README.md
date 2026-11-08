@@ -35,6 +35,18 @@ claude plugin install qm@claude-queue-manager
 
 3. Restart the local Claude Desktop **Code** session. The archive contains the marketplace manifest and plugin sources, not a standalone app. No API key or npm install is needed. The source ZIP includes all 20 language guides under `docs/`.
 
+## Interactive UI / TUI (v0.2.0)
+
+Type **`/qm`** inside the Claude Desktop **Code** tab or inside the Claude Code terminal (TUI). Both show the same built-in mod pane; no separate web server, browser UI, or npm runtime is required.
+
+- **Dashboard:** active task, pending and completed counts, pause / resume, undo.
+- **Batch entry:** paste several tasks on separate lines or separate them with `||`.
+- **Repeat entry:** type `5 | continue` or `5 | devam et` into the repeat field.
+- **Manage:** search/filter, 12-task pages, edit, reorder (↑/↓), remove, and two-click confirmation before clearing pending tasks.
+- **Language:** switch the panel between **English / Türkçe** with the dropdown or `/qm lang en` and `/qm lang tr`. [Usage guides](docs/languages/README.md) remain available in 20 languages; the panel itself currently supports English and Turkish.
+
+**Limitations:** UI rendering is host-dependent and needs a compatible local Code/CLI Mods engine. No native drag-and-drop, separate standalone desktop window or native webview. Existing `Ctrl+Enter` queue is unchanged. Test two harmless tasks before large batches.
+
 ## Commands
 
 | Command | What it does |
@@ -44,6 +56,7 @@ claude plugin install qm@claude-queue-manager
 | `/qm repeat 100 continue` | Adds 100 separate identical tasks (max 200 per call); text can be in any language |
 | `/qm batch Run lint || Fix tests || Update README` | Adds tasks in specified order (max 200) |
 | `/qm pause` / `/qm resume` | Pauses after the current task / resumes |
+| `/qm lang tr` / `/qm lang en` | Switches interactive panel language (Turkish / English) |
 | `/qm front Run tests first` | Places a task at the front |
 | `/qm mv 3 1` | Moves pending task #3 to position #1 |
 | `/qm edit 2 New wording` | Edits task #2 before execution |
@@ -53,7 +66,7 @@ claude plugin install qm@claude-queue-manager
 | `/qm recover` | Puts an in-flight item back at the front after a host crash (then pauses) |
 | `/qm help` | Command reference |
 
-The panel includes a multi-line input: paste one task per line, or separate tasks with `||`. You can also use the pane's up/down/remove buttons for the visible tasks. It shows 20 tasks per page. Drag-and-drop is not currently supported.
+The panel includes a multi-line input: paste one task per line, or separate tasks with `||`. You can also use the pane's up/down/remove buttons for the visible tasks. It shows 12 tasks per page (filtered search retains each task's real queue position). Drag-and-drop is not currently supported.
 
 ## Example: create a batch safely
 

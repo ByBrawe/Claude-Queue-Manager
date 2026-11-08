@@ -32,6 +32,12 @@ Claude Code içinde aşağıdaki iki komutu çalıştır. Ardından Claude Deskt
 /qm resume
 ```
 
+## Etkileşimli UI / TUI
+
+Claude Desktop **Code** sekmesinde veya Claude Code terminalinde **`/qm`** yazınca panel açılır. Toplu görev yapıştırma, `5 | devam et` tekrar alanı, arama, 12 satırlık sayfalama, görev düzenleme, yukarı/aşağı taşıma ve iki aşamalı silme onayı vardır.
+
+Panel dili: **Türkçe / English** açılır menüsünden veya `/qm lang tr` ve `/qm lang en` komutlarıyla seçilir. Rehberler 20 dilde olsa da panel arayüzü şimdilik iki dildedir. Sürüm uyumluluğu için gerçek Desktop üzerinde iki kısa görevle test et.
+
 ## Komut rehberi
 
 | Komut | Komut rehberi |

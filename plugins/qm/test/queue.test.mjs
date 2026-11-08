@@ -1,6 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { parseCommand } from '../src/commands.mjs';
+import { filteredPage, parseRepeatForm, splitPaste, uiStrings } from '../src/view.mjs';
 import { MAX_BATCH, initialState, enqueue, remove, move, edit, clear, undo,
   canStart, claim, completeTurn, normalizeState, rejectSubmission, recover } from '../src/queue.mjs';
 
@@ -73,4 +74,25 @@ test('capacity, invalid positions, and empty tasks are rejected atomically', () 
   assert.throws(() => remove(original, 0));
   assert.throws(() => edit(original, 1, ''));
   assert.throws(() => enqueue(original, Array(201).fill('x')));
+});
+
+
+test('UI filter keeps original queue positions when searched/paginated', () => {
+  const tasks = Array.from({length: 35}, (_, i) => ({id: i + 1, text: `task-${i + 1} ${i % 3 ? 'beta' : 'alpha'}`}));
+  const v = filteredPage(tasks, 'beta', 1, 10);
+  assert.equal(v.totalMatches, 23);
+  assert.equal(v.totalPages, 3);
+  assert.equal(v.rows[0].position, 17);
+  assert.equal(filteredPage(tasks, 'not-found').rows.length, 0);
+  assert.equal(filteredPage(tasks, '', 99).page, 2);
+});
+
+test('repeat form, pasted tasks and UI translations are bounded', () => {
+  assert.deepEqual(parseRepeatForm('200 | devam et'), { count: 200, task: 'devam et' });
+  for (const invalid of ['0 | go', '201 | go', 'abc | go', '20 |', '20 go']) {
+    assert.throws(() => parseRepeatForm(invalid));
+  }
+  assert.deepEqual(splitPaste(`First\nSecond || Third\n\nFourth`), ['First', 'Second', 'Third', 'Fourth']);
+  assert.equal(uiStrings('tr').pause, 'Duraklat');
+  assert.equal(uiStrings('en').pause, 'Pause');
 });

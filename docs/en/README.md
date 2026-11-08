@@ -32,6 +32,12 @@ Pause the queue, add several tasks in one batch, inspect the panel, then resume.
 /qm resume
 ```
 
+## Interactive UI / TUI
+
+Use **`/qm`** in Claude Desktop **Code** or Claude Code CLI to open the interactive pane: paste tasks, repeat using `5 | continue`, search pending tasks, paginate 12 at a time, edit/reorder rows, and clear pending tasks with two-step confirmation.
+
+Switch UI language via the **English / Türkçe** dropdown or `/qm lang en` and `/qm lang tr`. Guides are available in 20 languages, but the interactive panel currently supports only English and Turkish. Test with two small tasks in your actual Desktop version.
+
 ## Command reference
 
 | Command | Command reference |
