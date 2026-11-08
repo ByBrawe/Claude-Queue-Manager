@@ -1,13 +1,16 @@
 {
   "name": "claude-queue-manager",
   "description": "Claude Code Desktop Queue Manager (/qm)",
-  "owner": { "name": "ByBrawe", "url": "https://github.com/ByBrawe" },
+  "owner": {
+    "name": "ByBrawe",
+    "url": "https://github.com/ByBrawe"
+  },
   "plugins": [
     {
       "name": "qm",
       "source": "./plugins/qm",
       "description": "Queue, batch, repeat, reorder and execute prompts one per turn",
-      "version": "0.1.0",
+      "version": "0.1.1",
       "category": "productivity"
     }
   ]

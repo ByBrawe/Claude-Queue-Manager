@@ -5,6 +5,12 @@ Open a queue panel with `/qm`, add up to 200 tasks at once, and run them as **se
 
 **Requires:** Claude Code 2.1.287+ (Desktop Code tab 2.1.286+). Not for the regular Claude Chat tab, remote cloud sessions or Desktop WSL sessions.
 
+## Documentation · 20 languages / 20 dil
+
+[**Choose a language / Dil seç**](docs/languages/README.md) — [English](docs/en/README.md) · [Türkçe](docs/tr/README.md) · [Deutsch](docs/de/README.md) · [Français](docs/fr/README.md) · [Español](docs/es/README.md) · [Italiano](docs/it/README.md) · [Português (Brasil)](docs/pt-BR/README.md) · [Русский](docs/ru/README.md) · [Українська](docs/uk/README.md) · [Polski](docs/pl/README.md) · [Nederlands](docs/nl/README.md) · [Svenska](docs/sv/README.md) · [日本語](docs/ja/README.md) · [한국어](docs/ko/README.md) · [简体中文](docs/zh-CN/README.md) · [العربية](docs/ar/README.md) · [हिन्दी](docs/hi/README.md) · [Bahasa Indonesia](docs/id/README.md) · [Tiếng Việt](docs/vi/README.md) · [فارسی](docs/fa/README.md).
+
+**Command words do not change by language.** For example, `/qm repeat 5 continue` (English) and `/qm repeat 5 devam et` (Turkish) both queue five messages; only the task text differs. These are translated *guides*, not a localized plugin UI. Repeating a vague instruction without a stopping condition can waste usage and context.
+
 ## Install from GitHub (recommended)
 
 Run in a Claude Code terminal or in the local Code tab's slash-command prompt:
@@ -19,7 +25,7 @@ If you already use a different queue mod, disable it to avoid competing queue ma
 
 ## Install from the downloadable ZIP
 
-1. Extract `Claude-Queue-Manager.zip` to a stable folder (do not rename/move it after installation).
+1. Extract the latest [source ZIP](https://github.com/ByBrawe/Claude-Queue-Manager/archive/refs/heads/main.zip) to a stable folder (do not rename/move it after installation).
 2. From a terminal, run:
 
 ```sh
@@ -27,7 +33,7 @@ claude plugin marketplace add /absolute/path/to/Claude-Queue-Manager
 claude plugin install qm@claude-queue-manager
 ```
 
-3. Restart the local Claude Desktop **Code** session. The archive contains the marketplace manifest and plugin sources, not a standalone app. No API key or npm install is needed.
+3. Restart the local Claude Desktop **Code** session. The archive contains the marketplace manifest and plugin sources, not a standalone app. No API key or npm install is needed. The source ZIP includes all 20 language guides under `docs/`.
 
 ## Commands
 
@@ -35,7 +41,7 @@ claude plugin install qm@claude-queue-manager
 | --- | --- |
 | `/qm` or `/qm list` | Opens the queue manager panel |
 | `/qm add Run tests` | Adds one task |
-| `/qm repeat 100 devam et` | Adds 100 separate identical tasks (max 200 per call) |
+| `/qm repeat 100 continue` | Adds 100 separate identical tasks (max 200 per call); text can be in any language |
 | `/qm batch Run lint || Fix tests || Update README` | Adds tasks in specified order (max 200) |
 | `/qm pause` / `/qm resume` | Pauses after the current task / resumes |
 | `/qm front Run tests first` | Places a task at the front |
