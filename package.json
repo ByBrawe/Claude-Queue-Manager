@@ -1,0 +1,14 @@
+{
+  "name": "claude-queue-manager",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Claude Code Desktop Queue Manager mod",
+  "license": "MIT",
+  "scripts": {
+    "check": "node --check plugins/qm/hooks/register.mjs && node --check plugins/qm/src/commands.mjs && node --check plugins/qm/src/queue.mjs",
+    "test": "node --test plugins/qm/test/*.test.mjs",
+    "verify": "npm run check && npm test"
+  },
+  "engines": { "node": ">=20" }
+}
