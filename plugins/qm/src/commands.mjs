@@ -2,7 +2,14 @@ import { MAX_BATCH } from './queue.mjs';
 
 const num = text => /^\d+$/.test(text) ? Number(text) : NaN;
 const taskSplit = text => text.split(/\r?\n|\s+\|\|\s+/).map(s => s.trim()).filter(Boolean);
-
+export function parseDuration(text, allowOff = true) {
+  if (allowOff && /^off$/i.test(text)) return 0;
+  const match = /^(\d+)(s|m|h)?$/i.exec(String(text || ''));
+  if (!match) throw new Error('Duration must be 30s, 5m, 1h, or off');
+  const n = Number(match[1]), mult = { s: 1000, m: 60000, h: 3600000 }[(match[2] || 's').toLowerCase()];
+  if (!Number.isSafeInteger(n) || n < 0 || n * mult > 86400000) throw new Error('Duration out of range (max 24h)');
+  return n * mult;
+}
 export function parseCommand(raw = '') {
   const args = String(raw ?? '').trim();
   if (!args) return { type: 'open' };
@@ -15,16 +22,48 @@ export function parseCommand(raw = '') {
   if (/^recover$/i.test(args)) return { type: 'recover' };
   if (/^web$/i.test(args)) return { type: 'web' };
   if (/^(?:web\s+stop)$/i.test(args)) return { type: 'web-stop' };
+  if (/^(?:stats|analytics)$/i.test(args)) return { type: 'stats' };
+  if (/^(?:history|log)(?:\s+(\d+))?$/i.test(args)) {
+    const n = /(?:history|log)\s+(\d+)/i.exec(args)?.[1];
+    if (n && (Number(n) < 1 || Number(n) > 50)) throw new Error('History limit must be 1-50');
+    return { type: 'history', count: n ? Number(n) : 15 };
+  }
+  if (/^settings$/i.test(args)) return { type: 'settings' };
+  if (/^sessions$/i.test(args)) return { type: 'sessions' };
+  const restore = /^restore\s+([^\s]+)(?:\s+(recover))?$/i.exec(args);
+  if (restore) {
+    if (!/^[a-zA-Z0-9._:-]{1,150}$/.test(restore[1])) throw new Error('Invalid session ID');
+    return { type: 'restore', sessionId: restore[1], recover: Boolean(restore[2]) };
+  }
   const lang = /^lang(?:uage)?\s+(en|tr)$/i.exec(args);
   if (lang) return { type: 'lang', code: lang[1].toLowerCase() };
   if (/^next$/i.test(args)) return { type: 'next' };
+  const verify = /^verify\s+(off|marker|ai)(?:\s+([\w.-]+))?$/i.exec(args);
+  if (verify) {
+    if (verify[2] && verify[1].toLowerCase() !== 'ai') throw new Error('Model name applies to AI verification only');
+    return { type: 'config', updates: { verify: verify[1].toLowerCase(), ...(verify[2] ? { model: verify[2] } : {}) } };
+  }
+  if (/^retry\s+last$/i.test(args)) return { type: 'retry-last' };
+  const retry = /^retry\s+([0-5])(?:\s+(\S+))?$/i.exec(args);
+  if (retry) return { type: 'config', updates: { retries: Number(retry[1]), ...(retry[2] ? { retryDelayMs: parseDuration(retry[2]) } : {}) } };
+  const timeout = /^timeout\s+(\S+)$/i.exec(args);
+  if (timeout) return { type: 'config', updates: { timeoutMs: parseDuration(timeout[1]) } };
+  const context = /^context(?:\s+(off|status|\d+))?$/i.exec(args);
+  if (context) {
+    if (!context[1] || /^status$/i.test(context[1])) return { type: 'context-status' };
+    const n = /^off$/i.test(context[1]) ? 0 : Number(context[1]);
+    if (!Number.isInteger(n) || n < 0 || n > 99) throw new Error('Context threshold must be 1-99 or off');
+    return { type: 'config', updates: { contextPercent: n } };
+  }
+  const onFail = /^onfail\s+(pause|continue)$/i.exec(args);
+  if (onFail) return { type: 'config', updates: { onFail: onFail[1].toLowerCase() } };
+  const conditional = /^if\s+(success|failure|always)\s+([\s\S]+)$/i.exec(args);
+  if (conditional) return { type: 'add', when: conditional[1].toLowerCase(), texts: [conditional[2]] };
   if (/^(?:--|add)\s+([\s\S]+)$/i.test(args)) return { type: 'add', texts: [args.replace(/^(?:--|add)\s+/i, '')] };
   const rep = /^repeat\s+(\S+)(?:\s+([\s\S]+))?$/i.exec(args);
   if (rep) {
     const count = num(rep[1]);
-    if (!Number.isInteger(count) || count < 1 || count > MAX_BATCH || !rep[2]?.trim()) {
-      throw new Error(`Usage: /qm repeat <1-${MAX_BATCH}> <task>`);
-    }
+    if (!Number.isInteger(count) || count < 1 || count > MAX_BATCH || !rep[2]?.trim()) throw new Error(`Usage: /qm repeat <1-${MAX_BATCH}> <task>`);
     return { type: 'add', texts: Array(count).fill(rep[2].trim()) };
   }
   const batch = /^batch(?:\s+([\s\S]+))?$/i.exec(args);
@@ -41,37 +80,46 @@ export function parseCommand(raw = '') {
   if (mv) return { type: 'mv', from: num(mv[1]), to: num(mv[2]) };
   const edit = /^edit\s+(\S+)\s+([\s\S]+)$/i.exec(args);
   if (edit) return { type: 'edit', position: num(edit[1]), text: edit[2] };
-  if (/^(repeat|batch|mv|move|rm|remove|delete|edit|front|before)\b/i.test(args)) {
+  if (/^(repeat|batch|mv|move|rm|remove|delete|edit|front|before|verify|retry|timeout|context|onfail|if|restore|history|lang|web)\b/i.test(args)) {
     throw new Error('Incomplete command; see /qm help. Use /qm -- <text> to queue literal text.');
   }
-  // Convenient default: /qm <task> queues one literal task.
   return { type: 'add', texts: [args] };
 }
-
 export function brief(state, pageSize = 12) {
   const status = state.paused ? 'PAUSED' : state.running ? 'RUNNING' : state.busy ? 'WORKING' : 'READY';
-  const lines = [`QM ${status} | pending ${state.pending.length} | completed ${state.done.length}`];
+  const lines = [`QM ${status} | pending ${state.pending.length} | finished ${state.history.length}`];
   if (state.running) lines.push(` > ${state.running.id}: ${state.running.text.slice(0, 100)}`);
-  state.pending.slice(0, pageSize).forEach((task, i) => lines.push(` ${i + 1}. ${task.text.slice(0, 130)}`));
+  state.pending.slice(0, pageSize).forEach((task, i) => lines.push(` ${i + 1}. ${task.when !== 'always' ? `[if ${task.when}] ` : ''}${task.text.slice(0, 130)}`));
   if (state.pending.length > pageSize) lines.push(` ... ${state.pending.length - pageSize} more`);
   return lines.join('\n');
 }
-
 export const HELP = [
-  '/qm                       Open queue panel',
-  '/qm add <task>            Queue one task',
-  '/qm repeat 20 devam et   Queue 20 separate turns (max 200)',
-  '/qm batch A || B || C    Queue separate tasks in order (max 200)',
-  '/qm front <task>         Put task at front',
-  '/qm list                 Show pending tasks',
-  '/qm pause | resume       Pause or continue automatic execution',
-  '/qm mv 3 1               Reorder pending tasks',
-  '/qm edit 2 <text>        Edit pending task',
-  '/qm rm 2                 Delete pending task',
-  '/qm clear | undo         Clear pending tasks or undo last edit',
-  '/qm recover              Recover an in-flight task after a host crash',
-  '/qm lang tr | en         Change panel language (Turkish / English)',
-  '/qm web                  Launch local browser dashboard with drag and multi-select',
-  '/qm web stop             Shut down the local dashboard',
-  '/qm -- <text>            Queue literal text (reserved command words)'
+  '/qm                          Open queue panel',
+  '/qm add <task>               Queue one task',
+  '/qm repeat 20 devam et      Queue 20 separate turns (max 200)',
+  '/qm batch A || B || C       Queue tasks in order (max 200)',
+  '/qm if success <task>       Run only after the last executed task succeeded',
+  '/qm if failure <task>       Run only after the last executed task failed',
+  '/qm verify off|marker|ai    Opt-in completion verification (AI adds cost)',
+  '/qm verify ai haiku         Verify with a separate Haiku classification',
+  '/qm retry 2 5s              Retry errors at most twice, waiting 5s',
+  '/qm retry last              Requeue most recent failed/unknown task manually',
+  '/qm timeout 10m|off        Soft timeout, checked after a turn ends',
+  '/qm context 85|off         Pause before next task at 85% context',
+  '/qm context                Show context reading (when available)',
+  '/qm onfail pause|continue  Pause on final failure or run conditional branches',
+  '/qm history [1-50]         Show recent outcomes and durations',
+  '/qm stats                  Show cumulative local session analytics',
+  '/qm sessions               List recoverable local queue sessions',
+  '/qm restore <session-id> [recover] Transfer a paused queue into this empty session',
+  '/qm settings               Show automation settings',
+  '/qm pause | resume         Pause / resume',
+  '/qm mv 3 1                 Reorder pending tasks',
+  '/qm edit 2 <text>          Edit pending task',
+  '/qm rm 2                  Delete pending task',
+  '/qm clear | undo           Clear pending tasks / undo',
+  '/qm recover                Requeue orphaned in-flight task (paused)',
+  '/qm web | web stop         Optional localhost drag-and-drop dashboard',
+  '/qm lang tr | en           Switch panel language',
+  '/qm -- <text>              Queue literal reserved words'
 ].join('\n');

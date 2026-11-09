@@ -14,6 +14,7 @@ let toastTimer;
 
 const labels = {
   en: {
+    analyticsSection: 'ANALYTICS', analyticsTitle: 'Task outcomes', contextName: 'Context', unavailable: 'unavailable', passed: 'passed', failedCount: 'failed', retried: 'retried', skipped: 'skipped',
     headline: 'One task at a time.', subtitle: 'Your current Claude task keeps running. Future tasks wait their turn.',
     pending: 'PENDING', active: 'ACTIVE', done: 'COMPLETED', mode: 'QUEUE STATUS', tasks: 'Pending tasks',
     ready: 'Ready', paused: 'Paused', working: 'Working', running: 'Running', pause: 'Pause', resume: 'Resume',
@@ -34,6 +35,7 @@ const labels = {
     noDragFilter: 'Clear the filter before dragging tasks.',
   },
   tr: {
+    analyticsSection: 'İSTATİSTİKLER', analyticsTitle: 'Görev sonuçları', contextName: 'Bağlam', unavailable: 'bilinmiyor', passed: 'başarılı', failedCount: 'başarısız', retried: 'tekrar', skipped: 'atlanan',
     headline: 'Görevler tek tek çalışır.', subtitle: 'Claude mevcut işine devam eder. Sonraki görevler sırayla bekler.',
     pending: 'BEKLEYEN', active: 'AKTİF', done: 'TAMAMLANAN', mode: 'KUYRUK DURUMU', tasks: 'Bekleyen görevler',
     ready: 'Hazır', paused: 'Duraklatıldı', working: 'Meşgul', running: 'Çalışıyor', pause: 'Duraklat', resume: 'Devam ettir',
@@ -78,6 +80,7 @@ function markConnected(ok) {
 function translated() {
   const m = t();
   $('headline').textContent = m.headline; $('subtitle').textContent = m.subtitle;
+  $('eyebrow-analytics').textContent = m.analyticsSection; $('analytics-title').textContent = m.analyticsTitle;
   $('metric-pending').textContent = m.pending; $('metric-active').textContent = m.active;
   $('metric-done').textContent = m.done; $('metric-mode').textContent = m.mode;
   $('tasks-title').firstChild.textContent = m.tasks + ' ';
@@ -112,6 +115,14 @@ function render() {
   $('add-tasks').disabled = !s || Boolean(pendingActionId);
   $('active-title').textContent = s?.running?.text || m.activeEmpty;
   $('active-subtitle').textContent = m.activeDesc;
+  $('context-panel').textContent = `${m.contextName}: ${s?.context ? `${s.context.percent}% (${s.context.tokens}/${s.context.window})` : m.unavailable}`;
+  const counts = s?.stats;
+  $('stats-panel').textContent = counts ? `${counts.success} ${m.passed} • ${(counts.failure||0)+(counts.timeout||0)} ${m.failedCount} • ${counts.retried||0} ${m.retried} • ${counts.skipped||0} ${m.skipped}` : '—';
+  const history = $('history-panel'); history.replaceChildren();
+  for (const item of (s?.history || []).slice(0, 5)) {
+    history.append(el('p', 'muted tiny', `${item.status || 'success'} · ${Math.round((item.durationMs || 0)/1000)}s · ${item.text.slice(0, 75)}`));
+  }
+
   $('drag-tip').textContent = searchTerm ? m.filtered : m.drag;
   const items = s?.pending || [];
   for (const id of selected) if (!items.some(x => x.id === id)) selected.delete(id);
@@ -141,7 +152,7 @@ function render() {
       render();
     });
     const label = el('span','number',String(index).padStart(2,'0'));
-    const content = el('div','task-content',task.text);
+    const content = el('div','task-content',(task.when && task.when !== 'always' ? `[if ${task.when}] ` : '') + task.text);
     const actions = el('div','row-actions');
     const moveUp = el('button','icon-button','↑'); moveUp.title = m.top;
     moveUp.disabled = pendingActionId || index === 1;

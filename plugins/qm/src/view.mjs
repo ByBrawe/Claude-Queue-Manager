@@ -6,6 +6,7 @@ export const SUPPORTED_UI_LANGUAGES = [
 
 const messages = {
   en: {
+    analytics: 'Analytics', contextLabel: 'Context', verifyLabel: 'Verification', retryLabel: 'Retries', timeoutLabel: 'Timeout', historyLabel: 'History', sessionsLabel: 'Sessions', unavailable: 'unavailable', off: 'off', pauseReason: 'Paused because',
     title: 'QUEUE MANAGER', ready: 'READY', paused: 'PAUSED', running: 'RUNNING', working: 'WORKING',
     pending: 'pending', finished: 'recently done', active: 'Active', waiting: 'Waiting for previous turn',
     empty: 'No pending tasks. Paste tasks below to begin.',
@@ -27,6 +28,7 @@ const messages = {
     invalidRepeat: 'Use: count | task (count from 1 to 200).'
   },
   tr: {
+    analytics: 'İstatistikler', contextLabel: 'Bağlam', verifyLabel: 'Doğrulama', retryLabel: 'Tekrar', timeoutLabel: 'Zaman aşımı', historyLabel: 'Geçmiş', sessionsLabel: 'Oturumlar', unavailable: 'bilinmiyor', off: 'kapalı', pauseReason: 'Duraklatma nedeni',
     title: 'KUYRUK YÖNETİCİSİ', ready: 'HAZIR', paused: 'DURAKLATILDI', running: 'ÇALIŞIYOR', working: 'MEŞGUL',
     pending: 'bekleyen', finished: 'son tamamlanan', active: 'Aktif', waiting: 'Önceki görev bekleniyor',
     empty: 'Bekleyen görev yok. Aşağıya görevleri ekleyebilirsin.',

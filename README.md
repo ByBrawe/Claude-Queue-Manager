@@ -3,7 +3,7 @@
 A free, MIT-licensed **Claude Code mod** for **Claude Desktop > Code** and Claude Code CLI.
 Open a queue panel with `/qm`, add up to 200 tasks at once, and run them as **separate turns, one after another**. Unlike sending a bunch of native `Ctrl+Enter` messages, QM intentionally submits only the next pending task after the current main turn completes.
 
-**Requires:** Claude Code 2.1.287+ (Desktop Code tab 2.1.286+). Not for the regular Claude Chat tab, remote cloud sessions or Desktop WSL sessions.
+**Recommended:** Claude Code 2.1.290+ with Mods support (verify compatibility on your installed host). Not for the regular Claude Chat tab, remote cloud sessions or Desktop WSL sessions.
 
 ## Documentation · 20 languages / 20 dil
 
@@ -33,7 +33,52 @@ claude plugin install qm@claude-queue-manager
 
 3. Restart the local Claude Desktop **Code** session. The archive contains the marketplace manifest and plugin sources, not a standalone app. No API key or npm install is needed.
 
-## Interactive UI / TUI (v0.3.0)
+## Reliability & automation (v0.4.0)
+
+**New:** optional completion verification, bounded retries and soft timeouts, live context guard, conditional tasks, explicit session recovery, and local outcome analytics. **Existing /qm UI/TUI and drag-and-drop /qm web are preserved.** Default settings leave the old simple FIFO behavior unchanged.
+
+**Detailed guides:** [English v0.4 features](docs/en/FEATURES-0.4.md) · [Türkçe v0.4 özellikler](docs/tr/FEATURES-0.4.md) · [All languages](docs/languages/README.md)
+
+```text
+/qm pause
+/qm verify marker       # off (default), marker, or ai haiku (extra model call)
+/qm retry 2 5s          # up to 2 extra attempts after failed verification
+/qm timeout 10m         # soft timeout; only evaluated after a turn ends
+/qm context 85          # pause before the next dispatch at 85% real context usage
+/qm onfail continue     # opt-in to failure branch automation
+/qm add Run all tests and fix failures
+/qm if success Write release notes
+/qm if failure Investigate the test failure
+/qm resume
+/qm history 20
+/qm stats
+```
+
+**Verification is not independent testing.** Marker verification is model self-report; AI verification evaluates the assistant's last answer with an additional model call (extra usage), and may return `unknown`. It cannot prove code changes or test results. An `unknown` outcome pauses without re-running potentially successful work. Retries can duplicate side effects; use care with deploys and transactions.
+
+**Recovery:** `/qm sessions` lists saved queues; `/qm restore SESSION_ID` transfers only a paused queue into an empty session. `/qm restore SESSION_ID recover` is an explicit acknowledgement that the old in-flight task might execute twice. Source and target should not be active simultaneously. `/qm recover` restores an in-flight task to the same session without auto-starting it.
+
+**Context:** `/qm context` reads the host's `$.session.usage()` context field. If unavailable it is reported as unknown; QM does not manufacture token measurements. An automatic context guard does not compact or clear your session. `/qm timeout` never force-aborts an active task; it classifies a completed turn by elapsed time.
+
+### v0.4 commands
+
+| Command | Meaning |
+| --- | --- |
+| `/qm verify off\|marker\|ai [haiku]` | Choose completion check (AI is opt-in, extra tokens) |
+| `/qm retry 2 5s` | At most two additional attempts, with 5 second delay |
+| `/qm retry last` | Manually requeue the most recent failed/unknown task |
+| `/qm timeout 10m\|off` | Soft limit applied after the turn ends |
+| `/qm context 85\|off` | Read usage, optionally pause next task at threshold |
+| `/qm if success <task>` | Execute only after the last executed task succeeded |
+| `/qm if failure <task>` | Execute only after the last executed task failed |
+| `/qm onfail pause\|continue` | Stop on failure by default or permit recovery branches |
+| `/qm sessions` | List local saved queues |
+| `/qm restore SESSION_ID [recover]` | Transfer paused queue; explicit in-flight acknowledgement |
+| `/qm history [1-50]` | Recent task results and durations |
+| `/qm stats` | Aggregate counts, average duration and last context reading |
+| `/qm settings` | Show current automation settings |
+
+## Interactive UI / TUI (v0.3.0, enhanced in v0.4.0)
 
 Type `/qm` in Claude Desktop **Code** or Claude Code CLI for the native queue panel. No Node.js is needed for the native panel. It includes a live queue, search, batching, repeat entry, language selection, a small task history and pause/resume.
 
@@ -68,7 +113,7 @@ From a **local Desktop Code / CLI** session, run:
 | `/qm` or `/qm list` | Opens the queue manager panel |
 | `/qm add Run tests` | Adds one task |
 | `/qm repeat 100 devam et` | Adds 100 separate identical tasks (max 200 per call) |
-| `/qm batch Run lint || Fix tests || Update README` | Adds tasks in specified order (max 200) |
+| `/qm batch Run lint \|\| Fix tests \|\| Update README` | Adds tasks in specified order (max 200) |
 | `/qm pause` / `/qm resume` | Pauses after the current task / resumes |
 | `/qm lang tr` / `/qm lang en` | Switches the panel between Turkish and English |
 | `/qm web` | Opens the optional local drag-and-drop browser dashboard |
@@ -115,7 +160,7 @@ claude plugin validate .
 claude --plugin-dir ./plugins/qm
 ```
 
-Tests cover parser, FIFO dispatch, interruption, transcript redaction, multi-select, stable-ID reorder, local web API security, and browser-to-mod queue synchronization. Unit tests do **not** replace a real Desktop integration test.
+Tests cover parser, FIFO dispatch, interruption, transcript redaction, multi-select, stable-ID reorder, local web API security, browser-to-mod synchronization, v0.3 state migration, conditional branches, retries, soft timeouts, context guards, AI/marker verification, session restore, and history analytics. Unit tests do **not** replace a real Desktop integration test.
 
 ## License
 

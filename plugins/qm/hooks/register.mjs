@@ -2,7 +2,9 @@
 // It never injects queued text into the current turn. Each item is submitted
 // as a new user turn after a successful main turn.complete event.
 import { initialState, normalizeState, enqueue, remove, move, edit, clear, undo,
-  canStart, claim, completeTurn, rejectSubmission, recover, removeByIds, reorderByIds, moveSelected } from '../src/queue.mjs';
+  claim, settleTurn, recordContext, configure, statsText, retryLast, rejectSubmission, recover,
+  removeByIds, reorderByIds, moveSelected } from '../src/queue.mjs';
+import { MARKER_NOTE, verdictFromText, parseAiVerdict, buildVerificationPrompt } from '../src/verification.mjs';
 import { parseCommand, HELP } from '../src/commands.mjs';
 import { uiStrings, filteredPage, parseRepeatForm, splitPaste, SUPPORTED_UI_LANGUAGES } from '../src/view.mjs';
 
@@ -27,6 +29,8 @@ let webRevision = 0;
 let webAck = null;
 let webHandledId = 0;
 let webTimer = null;
+let retryTimer = null;
+let verificationRunning = false;
 const PREFS_KEY = 'claude-queue-manager:prefs:locale';
 
 function exclusive(work) {
@@ -37,7 +41,15 @@ function exclusive(work) {
 
 async function load($) {
   const id = await $.session.id();
-  if (cached && id === cachedSessionId) return cached;
+  if (cached && id === cachedSessionId) {
+    // A paused queue may be transferred to another session. Invalidate an old
+    // process-local cache so resuming the source cannot replay transferred tasks.
+    const persisted = await $.store.get(STORE_PREFIX + id);
+    if (persisted?.transferredTo && cached.transferredTo !== persisted.transferredTo) {
+      cached = normalizeState(persisted, id, await $.clock.now());
+    }
+    return cached;
+  }
   const raw = await $.store.get(STORE_PREFIX + id);
   cached = raw ? normalizeState(raw, id, await $.clock.now()) : initialState(id, await $.clock.now());
   cachedSessionId = id;
@@ -71,7 +83,9 @@ async function sendWebSnapshot($) {
     await webRequest($, 'state', 'POST', {
       revision: webRevision,
       state: { pending: cached.pending, running: cached.running, done: cached.done,
-        paused: cached.paused, busy: cached.busy },
+        paused: cached.paused, busy: cached.busy, stats: cached.stats,
+        context: cached.context, config: cached.config, pauseReason: cached.pauseReason,
+        history: cached.history.slice(0, 12) },
       ...(webAck ? { ack: webAck } : {})
     });
   } catch (error) { logError($, error); }
@@ -170,21 +184,46 @@ function logError($, err) {
   try { $.ui.log('Queue Manager: ' + String(err?.message ?? err), { to: 'debug' }); } catch {}
 }
 
+// A failed usage read is never converted into a made-up token estimate.
+async function readUsage($) {
+  if (!$.session?.usage) return null;
+  try { return await $.session.usage(); }
+  catch (error) { logError($, error); return null; }
+}
+
+function cancelRetryTimer() {
+  if (retryTimer) { try { retryTimer.cancel(); } catch {} retryTimer = null; }
+}
+
 function scheduleNext($) {
-  // Claim one, save it, then submit. Never claim multiple messages at once.
-  void exclusive(async () => {
-    const state = await load($);
-    if (!canStart(state)) return null;
-    const result = claim(state, await $.clock.now());
-    await save($, result.state);
-    return result.task;
-  }).then(task => { if (task) void submitOne($, task); }).catch(error => logError($, error));
+  cancelRetryTimer();
+  // Read the actual context before dispatch, not a stale snapshot from the last turn.
+  void (async () => {
+    const usage = await readUsage($);
+    return exclusive(async () => {
+      let state = await load($);
+      if (usage) {
+        const updated = recordContext(state, usage);
+        if (updated !== state) { await save($, updated); state = updated; }
+      }
+      const result = claim(state, await $.clock.now());
+      if (result.state !== state) await save($, result.state);
+      return result;
+    });
+  })().then(result => {
+    if (result.task) { void submitOne($, result.task); return; }
+    if (result.waitMs > 0 && $.clock?.after) {
+      retryTimer = $.clock.after(result.waitMs, () => { retryTimer = null; scheduleNext($); });
+    }
+  }).catch(error => logError($, error));
 }
 
 async function submitOne($, task) {
   let dropped;
   try {
-    const result = await $.prompt.submit({ text: task.text, asUser: true });
+    const state = await load($);
+    const text = state.config.verify === 'marker' ? task.text + MARKER_NOTE : task.text;
+    const result = await $.prompt.submit({ text, asUser: true });
     dropped = result?.drop;
   } catch (error) {
     dropped = String(error?.message ?? error);
@@ -193,6 +232,71 @@ async function submitOne($, task) {
   await change($, state => rejectSubmission(state, task.id));
   $.ui.toast('QM: task not started; queue paused. /qm resume to retry');
   logError($, dropped);
+}
+
+async function verifyAnswer($, task, answer, config) {
+  if (config.verify === 'off') return 'success';
+  if (config.verify === 'marker') return verdictFromText(answer);
+  if (config.verify === 'ai') {
+    if (!$.model?.complete || !String(answer || '').trim()) return 'unknown';
+    const question = buildVerificationPrompt(task.text, answer);
+    try {
+      const result = await $.model.complete({
+        model: config.model, system: question.system, prompt: question.prompt,
+        maxTokens: 64, effort: 'low', timeoutMs: 25000
+      });
+      return result?.isAnswered === false ? 'unknown' : parseAiVerdict(result?.text);
+    } catch (error) { logError($, error); return 'unknown'; }
+  }
+  return 'unknown';
+}
+
+function formatHistory(state, count = 15) {
+  const records = state.history.slice(0, count);
+  if (!records.length) return 'QM: history empty';
+  return ['QM history (latest first):', ...records.map(r =>
+    `#${r.id} ${r.status || 'success'} ${Number.isFinite(r.durationMs) ? `${Math.round(r.durationMs/1000)}s` : '?'} attempt ${r.attempts || 1} · ${r.text.slice(0, 120)}`)
+  ].join('\n');
+}
+
+async function listSessions($) {
+  if (!$.store?.keys) return 'QM: session listing unavailable in this host';
+  const keys = (await $.store.keys()).filter(k => k.startsWith(STORE_PREFIX));
+  const sessions = await Promise.all(keys.map(async key => {
+    const data = await $.store.get(key);
+    return { id: key.slice(STORE_PREFIX.length), data };
+  }));
+  const rows = sessions.filter(x => x.data?.pending?.length || x.data?.running)
+    .sort((a,b) => (b.data.updatedAt || 0) - (a.data.updatedAt || 0)).slice(0,20);
+  return rows.length ? ['QM saved sessions (restore requires a paused source and empty target):',
+    ...rows.map(x => `${x.id} · ${x.data.pending.length} pending${x.data.running ? ' + in-flight' : ''} · ${x.data.paused ? 'paused' : 'active'}`)
+  ].join('\n') : 'QM: no non-empty saved queue sessions';
+}
+
+async function restoreSession($, sessionId, acknowledgeRunning) {
+  return exclusive(async () => {
+    const target = await load($);
+    const targetId = await $.session.id();
+    if (sessionId === targetId) throw new Error('Cannot restore the current session into itself');
+    if (target.pending.length || target.running || target.history.length) throw new Error('Target session must have an empty QM queue and history');
+    const key = STORE_PREFIX + sessionId;
+    const raw = await $.store.get(key);
+    if (!raw) throw new Error('No saved queue with that session ID');
+    if (raw.transferredTo) throw new Error(`Queue was already transferred to ${raw.transferredTo}`);
+    if (!raw.paused && !raw.running) throw new Error('Source queue is active. Pause it in its original session first.');
+    if (raw.running && !acknowledgeRunning) throw new Error('Source has an in-flight task. Use: /qm restore SESSION_ID recover (may duplicate work)');
+    let source = normalizeState(raw, sessionId, await $.clock.now());
+    if (source.running) source = recover(source);
+    if (!source.pending.length) throw new Error('Source has no pending work');
+    const transferred = { ...source, sessionId: targetId, paused: true,
+      pauseReason: 'restored-needs-review', transferredTo: null, busy: false, running: null, undo: [] };
+    // First retire the original queue to prevent two sessions from running copied tasks.
+    const retired = { ...source, pending: [], running: null, paused: true, transferredTo: targetId };
+    await $.store.set(key, retired);
+    try { await save($, transferred); }
+    catch (error) { await $.store.set(key, raw); throw error; }
+    return `QM: transferred ${transferred.pending.length} task(s) from ${sessionId}; queue paused for review. /qm resume when safe.`;
+  });
 }
 
 async function perform($, text) {
@@ -204,6 +308,17 @@ async function perform($, text) {
   if (intent.type === 'help') return HELP;
   if (intent.type === 'web') return startWeb($);
   if (intent.type === 'web-stop') { await stopWeb($); return 'QM: web dashboard stopped'; }
+  if (intent.type === 'sessions') return listSessions($);
+  if (intent.type === 'restore') return restoreSession($, intent.sessionId, intent.recover);
+  if (intent.type === 'stats') return statsText(await load($));
+  if (intent.type === 'history') return formatHistory(await load($), intent.count);
+  if (intent.type === 'settings') return `QM settings: ${JSON.stringify((await load($)).config)}`;
+  if (intent.type === 'context-status') {
+    const usage = await readUsage($);
+    if (usage) await change($, state => recordContext(state, usage));
+    const state = await load($);
+    return `QM context: ${state.context ? `${state.context.tokens}/${state.context.window} (${state.context.percent}%)` : 'unavailable'}. Guard: ${state.config.contextPercent || 'off'}%.`;
+  }
   if (intent.type === 'lang') {
     language = intent.code;
     await $.store.set(PREFS_KEY, language);
@@ -211,27 +326,31 @@ async function perform($, text) {
     return `QM: language set to ${language}`;
   }
   if (intent.type === 'next') {
-    const state = await change($, state => ({ ...state, paused: false }));
+    const state = await change($, state => ({ ...state, paused: false, pauseReason: null }));
     scheduleNext($);
     return `QM: ${state.pending.length} pending`;
   }
   const updated = await change($, (state, now) => {
     switch (intent.type) {
-      case 'add': return enqueue(state, intent.texts, intent.where ?? 'end', now);
+      case 'add': return enqueue(state, intent.texts, intent.where ?? 'end', now, intent.when ?? 'always');
+      case 'config': return configure(state, intent.updates);
+      case 'retry-last': return retryLast(state, now);
       case 'rm': return remove(state, intent.position);
       case 'mv': return move(state, intent.from, intent.to);
       case 'edit': return edit(state, intent.position, intent.text);
       case 'clear': return clear(state);
       case 'undo': return undo(state);
       case 'recover': return recover(state);
-      case 'pause': return { ...state, paused: true };
-      case 'resume': return { ...state, paused: false };
+      case 'pause': return { ...state, paused: true, pauseReason: 'user' };
+      case 'resume': return { ...state, paused: false, pauseReason: null };
       default: throw new Error('Unsupported queue action');
     }
   });
   if (intent.type === 'add' || intent.type === 'resume') scheduleNext($);
-  if (intent.type === 'add') return `QM: ${intent.texts.length} added; ${updated.pending.length} pending`;
+  if (intent.type === 'config') return `QM: ${JSON.stringify(updated.config)} (takes effect on subsequent turns)`;
+  if (intent.type === 'add') return `QM: ${intent.texts.length} added; ${updated.pending.length} pending${intent.when ? ` (if ${intent.when})` : ''}`;
   if (intent.type === 'recover') return 'QM: in-flight task recovered; queue paused. Review then /qm resume';
+  if (intent.type === 'retry-last') return 'QM: last failed/unknown task requeued at front; review then /qm resume';
   return `QM: ${intent.type} OK; ${updated.pending.length} pending${updated.paused ? ' (paused)' : ''}`;
 }
 
@@ -300,7 +419,18 @@ async function drawPane($, e) {
   const title = node(Text, `${t.title}   |   ${status(state, t)}`, {
     color: state.paused ? 'yellow' : state.running ? 'green' : 'cyan', bold: true
   });
-  const stats = node(Text, `${state.pending.length} ${t.pending}   •   ${state.done.length} ${t.finished}`, { dimColor: true });
+  const stats = node(Text, `${state.pending.length} ${t.pending}   •   ${state.stats.success} ✓   ${state.stats.failure + state.stats.timeout} ✕   ${state.stats.retried} ↺   ${state.stats.skipped} ↷`, { dimColor: true });
+  const contextLine = node(Text, `${t.contextLabel}: ${state.context ? `${state.context.percent}% (${state.context.tokens}/${state.context.window})` : t.unavailable}   •   ${t.verifyLabel}: ${state.config.verify}   •   ${t.retryLabel}: ${state.config.retries}   •   ${t.timeoutLabel}: ${state.config.timeoutMs ? `${Math.round(state.config.timeoutMs/1000)}s` : t.off}`, { dimColor: true });
+  const pauseInfo = state.pauseReason ? node(Text, `${t.pauseReason}: ${state.pauseReason}`, { color: 'yellow' }) : null;
+  const recentOutcomes = state.history.slice(0, 4).map(item => node(Text,
+    `#${item.id} ${item.status || 'success'} · ${Math.round((item.durationMs || 0)/1000)}s · ${shortened(item.text, 65)}`,
+    { dimColor: true }));
+  const advancedActions = Box({ flexDirection: 'row', columnGap: 1, children: [
+    button(Button, 'qm-stats', t.analytics, () => act($, 'stats')),
+    button(Button, 'qm-context', t.contextLabel, () => act($, 'context')),
+    button(Button, 'qm-history', t.historyLabel, () => act($, 'history')),
+    button(Button, 'qm-sessions', t.sessionsLabel, () => act($, 'sessions'))
+  ] });
   const active = state.running
     ? node(Text, `▶ ${t.active}: #${state.running.id} ${shortened(state.running.text, 115)}`, { color: 'green' })
     : node(Text, state.busy ? t.waiting : t.noActive, { dimColor: true });
@@ -372,7 +502,7 @@ async function drawPane($, e) {
         if (selectedIds.has(task.id)) selectedIds.delete(task.id); else selectedIds.add(task.id);
         groupRemoveArmed = false; redraw($);
       }, { plain: true }),
-      node(Text, `${task.position}. ${shortened(task.text, 92)}`, {
+      node(Text, `${task.position}. ${task.when !== 'always' ? `[if ${task.when}] ` : ''}${shortened(task.text, 92)}`, {
         color: activeEdit ? 'cyan' : undefined, bold: activeEdit, wrap: 'truncate-end'
       }),
       button(Button, `qm-edit-${task.id}`, t.select, () => {
@@ -426,13 +556,13 @@ async function drawPane($, e) {
     : null;
 
   return block(Box, [
-    Box({ flexDirection: 'row', columnGap: 2, children: [title, langControl] }), stats, active,
+    Box({ flexDirection: 'row', columnGap: 2, children: [title, langControl] }), stats, contextLine, ...(pauseInfo ? [pauseInfo] : []), active, advancedActions,
     node(Text, t.oneAtTime, { dimColor: true }), actionRow, ...(confirmNotice ? [confirmNotice] : []),
     pasteInput, button(Button, 'qm-add-action', t.addButton, () => queuePasted(bulkDraft)),
     repeatInput, button(Button, 'qm-repeat-action', t.repeatButton, () => queueRepeated(repeatDraft)),
     search, selectionRow,
     ...(view.rows.length ? rows : [node(Text, state.pending.length ? t.noMatch : t.empty, { dimColor: true })]),
-    pages, editBox, ...(recent ? [recent] : []), ...(recover ? [recover] : []),
+    pages, editBox, ...(recent ? [recent] : []), ...recentOutcomes, ...(recover ? [recover] : []),
     node(Text, t.help, { dimColor: true })
   ]);
 }
@@ -445,12 +575,14 @@ export function register(on) {
       editDraft = ''; editId = null; clearArmed = false;
       groupRemoveArmed = false; selectedIds.clear();
       web = null; webTimer = null; webRevision = 0; webAck = null; webHandledId = 0;
+      cancelRetryTimer(); verificationRunning = false;
     }
-    await load($);
+    const resumed = await load($);
+    if (resumed.recoverable) $.ui.toast('QM: previous in-flight task needs review. /qm recover (may repeat work).');
     try { language = (await $.store.get(PREFS_KEY)) === 'tr' ? 'tr' : 'en'; } catch {}
     try {
       await $.command.register({ name: 'qm', description: 'Queue Manager: run tasks one by one without steering',
-        argumentHint: 'add | batch | repeat | list | pause | resume | mv | edit', immediate: true });
+        argumentHint: 'add | batch | repeat | verify | retry | timeout | context | if | history', immediate: true });
     } catch (error) { logError($, error); }
     return next(e);
   });
@@ -463,15 +595,42 @@ export function register(on) {
   on('turn.complete', async ($, e, next) => {
     const result = await next(e);
     if (e.agentId !== undefined) return result;
-    const success = e.isAborted !== true && (!e.reason || e.reason === 'answer');
-    const updated = await change($, (state, now) => completeTurn(state, success, now));
+    if (verificationRunning) return result;
+    const state = await load($);
+    const aborted = e.isAborted === true || (e.reason && e.reason !== 'answer');
+    if (!state.running) {
+      await change($, s => ({ ...s, busy: false }));
+      if (!aborted) scheduleNext($);
+      return result;
+    }
+    let outcome = 'aborted', detail = '';
+    const now = await $.clock.now();
+    const durationMs = Number.isFinite(e.durationMs) ? e.durationMs : Math.max(0, now - (state.running.startedAt || now));
+    if (!aborted) {
+      if (state.config.timeoutMs > 0 && durationMs > state.config.timeoutMs) {
+        outcome = 'timeout'; detail = `soft timeout ${state.config.timeoutMs}ms`;
+      } else {
+        verificationRunning = true;
+        try {
+          outcome = await verifyAnswer($, state.running, e.answer ?? result?.text ?? '', state.config);
+          detail = state.config.verify;
+        } finally { verificationRunning = false; }
+      }
+    }
+    const usage = await readUsage($);
+    const updated = await change($, (s, t) => {
+      const sampled = usage ? recordContext(s, usage) : s;
+      return settleTurn(sampled, outcome, t, { durationMs, reason: detail });
+    });
     if (web) await syncWebAction($);
-    if (success && !updated.paused) scheduleNext($);
-    if (!success) $.ui.toast('QM: task interrupted; pending queue paused');
+    if (!updated.paused) scheduleNext($);
+    if (updated.paused && outcome !== 'success') $.ui.toast(`QM: ${outcome}; queue paused. /qm history`);
+    if (updated.pauseReason?.startsWith('context:')) $.ui.toast(`QM: context guard ${updated.pauseReason}; /qm context`);
     return result;
   });
 
   on('session.end', ($, e, next) => {
+    cancelRetryTimer();
     if (web) void stopWeb($);
     return next(e);
   });
