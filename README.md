@@ -1,3 +1,9 @@
+## 0.6.3 — Prompt üstünde tam panel / Full composer workspace
+
+`/qm` veya özet çubuğundaki **Genişlet**, tam paneli prompt yazma yerinin üstünde açar. Dil, Duraklat/Devam, Geri al, Bekleyenleri sil, Web, görev ekleme, **Adet + Mesaj + Tekrarla** ve bekleyen görevlerin düzenleme/sıralama/silme kontrolleri birlikte bulunur. **Ayrıntılar** yalnızca bağlam, geçmiş ve oturum bilgilerini açıp kapatır. **Kapat** paneli özet çubuğuna döndürür; **Yan panel** ayrı yüzeyi açar. Liste prompt üstünde dörder görevle sayfalanır; tam yan panelde sayfa boyutu 12'dir. Çalışan görev yeşil, duraklatılmış kuyruk sarıdır.
+
+`/qm` or **Expand** opens the complete workspace above the composer. Core controls and repeat count/message stay visible without Details. Details only toggles advanced telemetry. Close restores the summary bar; Side panel opens the separate native pane. Pending tasks paginate four at a time above the prompt and twelve in the side pane.
+
 ## 0.6.2 — Adet ile ekleme / Add repetitions
 
 Yan panelde **Adet + Mesaj + Tekrarla** her zaman görünür; Ayrıntılar açmak gerekmez. Kompakt görünümde mesajı yaz, Adet alanına 5 veya 20 gir ve Kuyruğa ekle düğmesine bas. Adet 1 iken satır satır toplu ekleme korunur; 2–200 arası aynı mesaj belirtilen sayıda eklenir. Duraklatılmış kuyrukta görevler devam ettirilene kadar bekler. Yeşil çalışan görevi, sarı duraklatılmış kuyruğu belirtir.

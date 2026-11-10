@@ -7,15 +7,21 @@ import { host, find, flush } from './helpers.mjs';
 import { initialState, enqueue, configure, claim, settleTurn, undo, normalizeState } from '../src/queue.mjs';
 import { acquireLock, releaseLock } from '../src/restore-lock.mjs';
 
-test('repeat count is visible without Details and compact add repeats one message',async()=>{
+test('full composer workspace shows repeats and pending actions without Details',async()=>{
  for(const count of [5,20]){
   const h=await host();await h.cmd('pause');await h.cmd('');
   const pane=await h.emit('ui.render',{component:'Pane',props:{bodyColumns:48},surface:'desktop'},{component:'Pane',requestId:'qm'});
   assert.ok(find(pane,'qm-repeat-count'));assert.ok(find(pane,'qm-repeat-message'));
   const ui=await h.emit('ui.render',{component:'AbovePrompt',props:{bodyColumns:48},surface:'desktop'},{component:'AbovePrompt'});
-  find(ui,'qm-inline-count').onInput(String(count));find(ui,'qm-add-tasks').onInput('continue carefully');
-  await find(ui,'qm-add-action').onPress();
+  for(const key of ['qm-toggle','qm-undo','qm-clear','qm-web-open','qm-side','qm-language','qm-add-tasks','qm-repeat-count','qm-repeat-message'])assert.ok(find(ui,key),key);
+  find(ui,'qm-repeat-count').onInput(String(count));find(ui,'qm-repeat-message').onInput('continue carefully');
+  await find(ui,'qm-repeat-action').onPress();
   assert.equal(h.state().pending.length,count);assert.ok(h.state().pending.every(x=>x.text==='continue carefully'));assert.equal(h.sent.length,0);
+  const queued=await h.emit('ui.render',{component:'AbovePrompt',props:{bodyColumns:48},surface:'desktop'},{component:'AbovePrompt'});
+  assert.ok(find(queued,'qm-search'));assert.ok(find(queued,'qm-edit-1'));assert.ok(find(queued,'qm-rm-1'));
+  await find(queued,'qm-details').onPress();
+  const detailed=await h.emit('ui.render',{component:'AbovePrompt',props:{bodyColumns:48},surface:'desktop'},{component:'AbovePrompt'});
+  assert.ok(find(detailed,'qm-repeat-count'));assert.ok(find(detailed,'qm-rm-1'));
  }
 });
 

@@ -1,3 +1,10 @@
+## 0.6.3 — Restore the full workspace above the prompt
+
+- Open the complete native queue workspace directly above the prompt, including pause/resume, undo, clear, web, task entry, repeat count/message and pending task operations.
+- Keep core controls visible regardless of Details; Details toggles advanced context/history/session information only.
+- Remove the separate reduced composer view. Preserve green running and yellow paused states, the collapsed summary band and separate side/expand/web actions.
+- Verify full AbovePrompt controls with official terminal/desktop host tests at 48 and 110 columns and 5/20 repeated additions.
+
 ## 0.6.2 — Visible repeat controls
 
 - Keep count/message/repeat controls visible in the side panel without opening Details.
