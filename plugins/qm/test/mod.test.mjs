@@ -115,7 +115,7 @@ test('TUI/desktop panel renders controls and queue content without model calls',
   await h.emit('command.run', { args: 'pause' }, { command: 'qm' });
   await h.emit('command.run', { args: 'batch fix bug || run tests' }, { command: 'qm' });
   let ui = await panel(h);
-  assert.equal(controls(ui, x => x.key === 'qm-repeat-message').length,0);
+  assert.equal(controls(ui, x => x.key === 'qm-repeat-message').length,1);
   await controls(ui, x => x.key === 'qm-details')[0].onPress();
   ui = await panel(h);
   const inputs = controls(ui, x => x.key?.startsWith('qm-') && typeof x.onInput === 'function');

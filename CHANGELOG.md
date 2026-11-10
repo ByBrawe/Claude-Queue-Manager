@@ -1,3 +1,10 @@
+## 0.6.2 — Visible repeat controls
+
+- Keep count/message/repeat controls visible in the side panel without opening Details.
+- Add a localized count field to the compact composer: 1 keeps batch entry; 2–200 repeats the entered message through the existing bounded repeat command.
+- Match the compact title to the running state with green; paused remains yellow.
+- Cover 5/20 repeated additions while paused and update native host visibility assertions.
+
 ## 0.6.1 — Compact pending rows and accurate empty state
 
 - Separate summary-band actions into Side panel, Expand and Web; Web never opens the inline manager.

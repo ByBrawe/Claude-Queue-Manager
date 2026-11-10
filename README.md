@@ -1,3 +1,9 @@
+## 0.6.2 — Adet ile ekleme / Add repetitions
+
+Yan panelde **Adet + Mesaj + Tekrarla** her zaman görünür; Ayrıntılar açmak gerekmez. Kompakt görünümde mesajı yaz, Adet alanına 5 veya 20 gir ve Kuyruğa ekle düğmesine bas. Adet 1 iken satır satır toplu ekleme korunur; 2–200 arası aynı mesaj belirtilen sayıda eklenir. Duraklatılmış kuyrukta görevler devam ettirilene kadar bekler. Yeşil çalışan görevi, sarı duraklatılmış kuyruğu belirtir.
+
+Side-panel repeat controls stay visible without Details. In the compact composer, use Count 5 or 20 and Add to queue to repeat the entered message. Count 1 retains batch entry; counts 2–200 use the bounded repeat command. Green means running; yellow means paused.
+
 ## 0.6.1 — Panel controls / Panel kontrolleri
 
 Özet çubuğunda üç ayrı işlem vardır: **Yan panel**, **Genişlet**, **Web**. Web düğmesi tarayıcıyı her basışta yeniden açar; çalışan sunucuyu tekrar kullanır ve özel bağlantıyı panoya yeniler. Dar panellerde görev metni ve işlem düğmeleri iki düzenli grupta gösterilir. Bekleyen görev varken boş kuyruk mesajı gösterilmez. 20 dil desteği korunur.

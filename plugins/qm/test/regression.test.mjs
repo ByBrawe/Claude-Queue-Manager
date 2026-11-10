@@ -7,6 +7,18 @@ import { host, find, flush } from './helpers.mjs';
 import { initialState, enqueue, configure, claim, settleTurn, undo, normalizeState } from '../src/queue.mjs';
 import { acquireLock, releaseLock } from '../src/restore-lock.mjs';
 
+test('repeat count is visible without Details and compact add repeats one message',async()=>{
+ for(const count of [5,20]){
+  const h=await host();await h.cmd('pause');await h.cmd('');
+  const pane=await h.emit('ui.render',{component:'Pane',props:{bodyColumns:48},surface:'desktop'},{component:'Pane',requestId:'qm'});
+  assert.ok(find(pane,'qm-repeat-count'));assert.ok(find(pane,'qm-repeat-message'));
+  const ui=await h.emit('ui.render',{component:'AbovePrompt',props:{bodyColumns:48},surface:'desktop'},{component:'AbovePrompt'});
+  find(ui,'qm-inline-count').onInput(String(count));find(ui,'qm-add-tasks').onInput('continue carefully');
+  await find(ui,'qm-add-action').onPress();
+  assert.equal(h.state().pending.length,count);assert.ok(h.state().pending.every(x=>x.text==='continue carefully'));assert.equal(h.sent.length,0);
+ }
+});
+
 test('summary band has separate side, expand and web actions',async()=>{
  const h=await host();await h.cmd('pause');await h.cmd('add A');
  const band=await h.emit('ui.render',{component:'AbovePrompt',props:{},surface:'desktop'},{component:'AbovePrompt'});

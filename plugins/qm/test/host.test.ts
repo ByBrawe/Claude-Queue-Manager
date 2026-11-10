@@ -46,7 +46,7 @@ for (const surface of ['terminal', 'desktop'] as const) {
       expect(await pane.find({ key: 'qm-add-tasks' })).toBeDefined()
       // Inline captions previously squeezed the editor to a tiny column.
       expect((await pane.find({ key: 'qm-add-tasks' }))?.props.label).toBeUndefined()
-      expect(await pane.find({ key: 'qm-repeat-message' })).toBeUndefined()
+      expect(await pane.find({ key: 'qm-repeat-message' })).toBeDefined()
       await pane.press({ key: 'qm-details' })
       expect(await pane.find({ type:'Text',text:/32%/ })).toBeDefined()
       expect((await pane.find({ key: 'qm-repeat-message' }))?.props.label).toBeUndefined()

@@ -41,6 +41,7 @@ let managerOpen = false;
 let detailsOpen = false;
 let rowRemoveArmed = null;
 let repeatCount = '5';
+let inlineCount = '1';
 let repeatText = '';
 let carryOver = false;
 let verificationEpoch = 0;
@@ -566,14 +567,23 @@ async function drawInline($, e) {
   const {Box,Text,Button,Input,Select}= $.ui.resolve(e);
   const t=uiStrings(language), state=await readState($);
   async function add(value) {
+    if (String(inlineCount).trim() !== '1') {
+      try {
+        const {count,task}=parseRepeatForm(`${inlineCount} | ${value}`);
+        const result=await act($,`repeat ${count} ${task}`);
+        if(!result.startsWith('QM error:')){bulkDraft='';redraw($);}
+      } catch { $.ui.toast(t.invalidRepeat); }
+      return;
+    }
     const items=splitPaste(value);if(!items.length)return;
     const result=await act($,`batch ${items.join(' || ')}`);
     if(!result.startsWith('QM error:')){bulkDraft='';redraw($);}
   }
   return block(Box,[
-    node(Text,`Queue Manager · ${status(state,t)} · ${state.pending.length} ${t.pending}`,{bold:true,color:state.paused?'yellow':'cyan'}),
+    node(Text,`Queue Manager · ${status(state,t)} · ${state.pending.length} ${t.pending}`,{bold:true,color:state.paused?'yellow':state.running?'green':'cyan'}),
     ...(Select ? [Select({key:'qm-language',label:t.language,options:SUPPORTED_UI_LANGUAGES,value:language,onSelect:v=>act($,`lang ${v}`)})] : []),
     Box({width:'100%',flexDirection:'column',children:[Input({key:'qm-add-tasks',rows:2,value:bulkDraft,placeholder:t.addHint,autoFocus:true,onInput:v=>bulkDraft=v,onSubmit:add})]}),
+    Input({key:'qm-inline-count',label:t.count,value:inlineCount,onInput:v=>inlineCount=String(v),onSubmit:v=>{inlineCount=String(v);}}),
     node(Text,state.paused?t.addPaused:t.addStarts,{dimColor:true}),
     Box({flexDirection:'row',flexWrap:'wrap',columnGap:1,children:[
       button(Button,'qm-add-action',t.addButton,()=>add(bulkDraft),{variant:'primary'}),
@@ -754,11 +764,11 @@ async function buildPane($, e) {
     ...(expanded ? [node(Text, t.pauseHint, { dimColor: true })] : []),
     ...(pauseInfo ? [pauseInfo] : []), ...(confirmNotice ? [confirmNotice] : []),
     pasteInput, button(Button, 'qm-add-action', t.addButton, () => queuePasted(bulkDraft), {variant:'primary'}),
-    ...(detailsOpen ? [
+    ...[
       node(Text,t.repeatButton,{bold:true}),
       Input({key:'qm-repeat-count',label:t.count,value:repeatCount,onInput:v=>repeatCount=v,onSubmit:v=>{repeatCount=v;}}),
       Box({width:'100%',flexDirection:'column',children:[Input({key:'qm-repeat-message',value:repeatText,placeholder:t.repeatMessage,rows:2,onInput:v=>repeatText=v,onSubmit:v=>{repeatText=v;}})]}),
-      button(Button, 'qm-repeat-action', t.repeatButton, () => queueRepeated(`${repeatCount} | ${repeatText}`))] : []),
+      button(Button, 'qm-repeat-action', t.repeatButton, () => queueRepeated(`${repeatCount} | ${repeatText}`))],
     ...(expanded && state.pending.length ? [search, selectionRow] : []),
     ...(expanded ? (view.rows.length ? rows : state.pending.length ? [node(Text, t.noMatch, { dimColor: true })] : []) : []),
     ...(expanded && view.totalPages > 1 ? [pages] : []), ...(editing ? [editBox] : []), ...(recover ? [recover] : []),
