@@ -202,7 +202,7 @@ test('native panel multi-selection moves group and requires confirmation for del
 test('web bridge applies a browser reorder to real session queue before resuming FIFO', async t => {
   const { createDashboard } = await import('../web/server.mjs');
   const h = fakeHost();
-  let server; let tick; let copied = '';
+  let server; let tick; let copied = ''; let browserOpens = 0;
   h.tools.plugin = { root: '/fake/plugin' };
   h.tools.ui.copy = async url => { copied = url; };
   h.tools.clock.sleep = async () => {};
@@ -211,7 +211,7 @@ test('web bridge applies a browser reorder to real session queue before resuming
     if (argv[3]?.endsWith('/web/server.mjs')) {
       server = createDashboard({ port: Number(argv[4]), token: argv[5] });
       await server.listen();
-    }
+    } else { browserOpens++; }
     return {exitCode:0,stdout:'',stderr:''};
   } };
   h.tools.http = { fetch: async (url, init = {}) => {
@@ -226,6 +226,11 @@ test('web bridge applies a browser reorder to real session queue before resuming
   assert.match(launch.text,/127\.0\.0\.1/);
   assert.doesNotMatch(launch.text,/token=/);
   assert.match(copied,/token=[0-9a-f]+/);
+  const originalUrl = copied;
+  copied = '';
+  await h.emit('command.run',{args:'web'},{command:'qm'});
+  assert.equal(copied,originalUrl,'reopening copies the current URL again');
+  assert.equal(browserOpens,2,'existing server still launches the browser again');
   const u = new URL(copied);
   const tok = new URLSearchParams(u.hash.slice(1)).get('token');
   const getState = async () => (await (await fetch(u.origin+'/api/state',{headers:{'x-qm-token':tok}})).json());

@@ -7,6 +7,18 @@ import { host, find, flush } from './helpers.mjs';
 import { initialState, enqueue, configure, claim, settleTurn, undo, normalizeState } from '../src/queue.mjs';
 import { acquireLock, releaseLock } from '../src/restore-lock.mjs';
 
+test('summary band has separate side, expand and web actions',async()=>{
+ const h=await host();await h.cmd('pause');await h.cmd('add A');
+ const band=await h.emit('ui.render',{component:'AbovePrompt',props:{},surface:'desktop'},{component:'AbovePrompt'});
+ assert.ok(find(band,'qm-band-side'));assert.ok(find(band,'qm-open'));assert.ok(find(band,'qm-band-web'));
+ await find(band,'qm-band-web').onPress();
+ const unchanged=await h.emit('ui.render',{component:'AbovePrompt',props:{},surface:'desktop'},{component:'AbovePrompt'});
+ assert.equal(find(unchanged,'qm-close'),undefined,'web action must not expand native manager');
+ await find(unchanged,'qm-open').onPress();
+ const expanded=await h.emit('ui.render',{component:'AbovePrompt',props:{},surface:'desktop'},{component:'AbovePrompt'});
+ assert.ok(find(expanded,'qm-close'));
+});
+
 test('language is visible in compact UI; Turkish defaults and saved English persists',async()=>{
  for(const saved of [undefined,'en']){
   const memory=new Map();if(saved)memory.set('claude-queue-manager:prefs:locale',saved);

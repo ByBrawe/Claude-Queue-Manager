@@ -36,6 +36,13 @@ for (const surface of ['terminal', 'desktop'] as const) {
       const pane = await $.ui.mount({ plugin: 'qm', component: 'Pane', requestId: 'qm', surface,
         viewport: { columns, rows: 40 }, props })
       expect(await pane.find({ key: 'qm-search' })).toBeDefined()
+      expect(await pane.find({type:'Text',text:/Bekleyen görev yok/})).toBeUndefined()
+      if(columns<70){
+        const controls=await pane.find({key:'qm-controls-1'})
+        expect(controls).toBeDefined()
+        expect(controls?.props.flexDirection).toBe('row')
+        expect(controls?.props.flexWrap).toBe('wrap')
+      }
       expect(await pane.find({ key: 'qm-add-tasks' })).toBeDefined()
       // Inline captions previously squeezed the editor to a tiny column.
       expect((await pane.find({ key: 'qm-add-tasks' }))?.props.label).toBeUndefined()

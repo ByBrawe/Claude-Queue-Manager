@@ -1,3 +1,9 @@
+## 0.6.1 — Panel controls / Panel kontrolleri
+
+Özet çubuğunda üç ayrı işlem vardır: **Yan panel**, **Genişlet**, **Web**. Web düğmesi tarayıcıyı her basışta yeniden açar; çalışan sunucuyu tekrar kullanır ve özel bağlantıyı panoya yeniler. Dar panellerde görev metni ve işlem düğmeleri iki düzenli grupta gösterilir. Bekleyen görev varken boş kuyruk mesajı gösterilmez. 20 dil desteği korunur.
+
+The summary bar separates **Side panel**, **Expand**, and **Web**. Web reopens the browser, reuses a healthy dashboard server and refreshes the private clipboard link. Narrow task rows group text and controls; pending work no longer shows an empty-queue hint. All 20 interface languages remain available.
+
 ## 0.6.0 — 20 interface languages / 20 arayüz dili
 
 The 20 documentation languages are now available in the native panel, CLI language command and web dashboard: en, tr, de, fr, es, it, pt-BR, ru, uk, pl, nl, sv, ja, ko, zh-CN, ar, hi, id, vi, fa. Use the header selector or `/qm lang de`, `/qm lang pt-BR`, `/qm lang zh-CN`. Native preferences survive a restart; browser preferences are saved per dashboard origin. Web Arabic and Persian use right-to-left layout. Command names, task content and host-provided diagnostic text are not translated.

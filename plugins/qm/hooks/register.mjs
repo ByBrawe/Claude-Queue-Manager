@@ -201,8 +201,13 @@ async function stopWeb($) {
 
 async function startWeb($) {
   if (web) {
-    await sendWebSnapshot($);
-    return 'QM: web dashboard is already running. Private link remains in your clipboard.';
+    try {
+      await webRequest($, 'state');
+      await sendWebSnapshot($);
+      return openWebLink($);
+    } catch {
+      await stopWeb($);
+    }
   }
   const root = $.plugin.root;
   const script = `${root}/web/server.mjs`;
@@ -227,9 +232,13 @@ async function startWeb($) {
   webHandledId = 0;
   await sendWebSnapshot($);
   webTimer = $.clock.every(1000, async () => { await syncWebAction($); });
+  return openWebLink($);
+}
+
+async function openWebLink($) {
   const privateUrl = `${urlForWeb()}/#token=${web.token}`;
   let copied = false;
-  try { await $.ui.copy(privateUrl); copied = true; } catch {}
+  try { const result = await $.ui.copy(privateUrl); copied = result?.isCopied !== false; } catch {}
   // Best effort to open the user's default browser, without a shell or remote server.
   try {
     const opener = "const {spawn}=require('node:child_process'); const u=process.argv[1]; const p=process.platform; const bin=p==='darwin'?'open':p==='win32'?'cmd':'xdg-open'; const args=p==='darwin'?[u]:p==='win32'?['/c','start','',u]:[u]; const c=spawn(bin,args,{detached:true,stdio:'ignore'});c.on('error',()=>{});c.unref()";
@@ -477,27 +486,33 @@ async function drawBand($, e, next) {
   if (e.props?.hasSurvey) return next(e);
   if (managerOpen) return drawPane($, e);
   const { Box, Text, Button } = $.ui.resolve(e);
-  const openButton = button(Button, 'qm-open', uiStrings(language).openWeb, () => openManager($), { plain: true });
+  const text = uiStrings(language);
+  const openButton = button(Button, 'qm-open', text.expand || text.details, () => openManager($), { plain: true });
+  const entries = [
+    button(Button,'qm-band-side',text.side,()=>openManager($,true),{plain:true}),
+    openButton,
+    button(Button,'qm-band-web','Web',()=>act($,'web'),{plain:true})
+  ];
   let state;
   try { state = await readState($); }
   catch (error) {
     return Box({ flexDirection: 'row', columnGap: 2, children: [
       node(Text, 'QM !', { color: 'yellow', bold: true }),
-      openButton
+      ...entries
     ] });
   }
   if (!state.pending.length && !state.running && !startupWarning) return next(e);
   if (startupWarning) {
     return Box({ flexDirection: 'row', columnGap: 1, children: [
       node(Text, startupWarning, { color: 'yellow', wrap: 'truncate-end' }),
-      openButton
+      ...entries
     ] });
   }
   const t = uiStrings(language);
   const nextName = state.pending.length ? shortened(state.pending[0].text, 45) : (state.running ? t.running : t.ready);
-  return Box({ flexDirection: 'row', columnGap: 2, children: [
+  return Box({ flexDirection: 'row', flexWrap: 'wrap', columnGap: 2, children: [
     node(Text, `${state.pending.length} ${t.pending} · ${status(state, t)} · ${nextName}`, { wrap: 'truncate-end', dimColor: true }),
-    openButton
+    ...entries
   ] });
 }
 
@@ -588,7 +603,7 @@ async function buildPane($, e) {
     color: state.paused ? 'yellow' : state.running ? 'green' : 'cyan', bold: true
   });
   const stats = node(Text, `${state.pending.length} ${t.pending} · ${state.running ? 1 : 0} ${t.active} · ${state.stats.success} ${t.done}`, { dimColor: true });
-  const contextLine = node(Text, `${t.contextLabel}: ${context ? `${context.percent}% (${context.tokens}/${context.window})` : t.contextMissing} · ${t.verifyLabel}: ${state.config.verify} · ${t.retryLabel}: ${state.config.retries} · ${t.timeoutLabel}: ${state.config.timeoutMs ? `${Math.round(state.config.timeoutMs/1000)}s` : t.off}`, { dimColor: true });
+  const contextLine = node(Text, `${t.contextLabel}: ${context ? `${context.percent}% (${context.tokens}/${context.window})` : t.contextMissing} · ${t.verifyLabel}: ${state.config.verify === 'off' ? t.off : state.config.verify} · ${t.retryLabel}: ${state.config.retries} · ${t.timeoutLabel}: ${state.config.timeoutMs ? `${Math.round(state.config.timeoutMs/1000)}s` : t.off}`, { dimColor: true });
   const pauseNames = language === 'tr' ? {user:'kullanıcı duraklattı',interrupted:'tur kesildi',failure:'başarısız görev',timeout:'süre sınırı',unknown:'sonuç bilinmiyor','verify-unknown':'doğrulama belirsiz','session-cleared':'yeni oturumda inceleme bekliyor','submit-rejected':'görev gönderimi reddedildi',recovery:'kurtarma gerekiyor','recovered-needs-review':'kurtarıldı; inceleme bekliyor','restored-needs-review':'taşındı; inceleme bekliyor','manual-retry':'elle yeniden deneme'} : {};
   const genericReason = language!=='en' && language!=='tr' ? ({timeout:t.timeoutLabel,failure:t.failure,'verify-unknown':t.verifyLabel,recovery:t.recover,'session-cleared':t.sessionsLabel,interrupted:t.pause,user:t.pause}[state.pauseReason] || t.paused) : null;
   const reason = genericReason ?? pauseNames[state.pauseReason] ?? (language === 'tr' && state.pauseReason?.startsWith('context:') ? `bağlam eşiği %${state.pauseReason.split(':')[1]}` : state.pauseReason);
@@ -671,12 +686,12 @@ async function buildPane($, e) {
 
   const rows = view.rows.map((task, rowIndex) => {
     const activeEdit = editId === task.id;
-    return Box({ key: `qm-task-${task.id}`, flexDirection: narrow ? 'column' : 'row', columnGap: 1, children: [
+    const cells = [
       button(Button, `qm-check-${task.id}`, selectedIds.has(task.id) ? '[x]' : '[ ]', () => {
         if (selectedIds.has(task.id)) selectedIds.delete(task.id); else selectedIds.add(task.id);
         groupRemoveArmed = false; redraw($);
       }, { plain: true, hotkey: String(rowIndex + 1).length === 1 ? String(rowIndex + 1) : undefined }),
-      node(Text, `${task.position}. ${task.when !== 'always' ? `[if ${task.when}] ` : ''}${shortened(task.text, Math.max(16, (e.props?.bodyColumns || 116) - 24))}`, {
+      node(Text, `${task.position}. ${task.when !== 'always' ? `[if ${task.when}] ` : ''}${shortened(task.text, Math.max(12, (e.props?.bodyColumns || 116) - (narrow ? 10 : 24)))}`, {
         color: activeEdit ? 'cyan' : undefined, bold: activeEdit, wrap: 'truncate-end'
       }),
       button(Button, `qm-edit-${task.id}`, t.select, () => {
@@ -690,7 +705,11 @@ async function buildPane($, e) {
         if (rowRemoveArmed !== task.id) { rowRemoveArmed = task.id; redraw($); return; }
         rowRemoveArmed = null; return actTask($, task.id, 'remove');
       }, { plain: true })
-    ] });
+    ];
+    return Box({key:`qm-task-${task.id}`,flexDirection:narrow?'column':'row',columnGap:1,children:narrow?[
+      Box({key:`qm-heading-${task.id}`,flexDirection:'row',columnGap:1,children:cells.slice(0,2)}),
+      Box({key:`qm-controls-${task.id}`,flexDirection:'row',flexWrap:'wrap',columnGap:1,children:cells.slice(2)})
+    ]:cells});
   });
 
   const editPosition = state.pending.findIndex(task => task.id === editId);
@@ -731,7 +750,7 @@ async function buildPane($, e) {
       button(Button, 'qm-close', t.close, () => act($, 'close'), { plain: true, hotkey: 'q', role: 'dismiss' }),
       button(Button, 'qm-side', t.side || t.openWeb, () => act($, 'side'), { plain: true })] }),
     stats, ...(expanded ? [actionRow] : [button(Button,'qm-toggle',state.paused?t.resume:t.pause,()=>act($,state.paused?'resume':'pause'),{variant:'primary',hotkey:'p'})]),
-    ...(state.running ? [active] : !inline ? [node(Text, t.empty, {dimColor:true})] : []),
+    ...(state.running ? [active] : state.busy ? [node(Text,t.waiting,{dimColor:true})] : !inline && state.pending.length===0 ? [node(Text, t.empty, {dimColor:true})] : []),
     ...(expanded ? [node(Text, t.pauseHint, { dimColor: true })] : []),
     ...(pauseInfo ? [pauseInfo] : []), ...(confirmNotice ? [confirmNotice] : []),
     pasteInput, button(Button, 'qm-add-action', t.addButton, () => queuePasted(bulkDraft), {variant:'primary'}),

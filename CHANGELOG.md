@@ -1,3 +1,12 @@
+## 0.6.1 — Compact pending rows and accurate empty state
+
+- Separate summary-band actions into Side panel, Expand and Web; Web never opens the inline manager.
+- Reopen the browser and refresh clipboard access when the dashboard server already runs; restart a stale server on demand.
+- Narrow native panels group selection/text and actions into two rows instead of stacking every control vertically. Action groups wrap only when needed.
+- Do not show an empty-queue hint when pending tasks exist; show the working hint during a non-queue turn.
+- Translate disabled verification mode through the selected locale.
+- Add official host regressions for narrow row grouping and false empty-state text.
+
 ## 0.6.0 — Shared 20-language UI catalog
 
 - Connect all 20 documented languages to native/CLI/web selectors and canonical language codes.
