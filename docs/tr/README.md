@@ -1,3 +1,19 @@
+## 0.5.0 — Desktop, CLI ve web arayüzü
+
+- Mesaj kutusu üstünde kompakt görünüm; Ayrıntılar ile görev işlemleri ve ileri bilgiler. Dar yan panelde tek sütun, tam genişlikte girişler; ayrı tekrar adedi ve mesajı.
+- Bekleyen/çalışan/tamamlanan sayıları, belirgin Duraklat/Devam kontrolü, tekli ve toplu silmede onay, geri alma. TUI: Tab/Shift+Tab ile odak, Enter ile seçme, p ile duraklat/devam, q ile kapatma. Komut adları İngilizce kalır; /qm lang tr arayüzü ve yardım açıklamalarını Türkçeleştirir.
+- Web: koyu mavi tema, oturum kimliği, iki sütun/tek sütun uyarlama, görev satırları ve sürükleme, çoklu seçim, ayrı tekrar girişi, kapalı geçmiş/istatistikler. Bağlantı kesilirse taslak korunur ve otomatik yeniden bağlanılır. Başarı yalnızca modun kayıt onayından sonra gösterilir.
+
+### Claude kendi listesini oluşturabilir
+
+Resmi **mcp__qm__queue** aracıyla Claude aynı oturumun kuyruğunu okuyabilir, görev ekleyebilir, bekleyen kimlikleri sıralayabilir/silebilir ve kuyruğu duraklatıp devam ettirebilir. Örnek istek: "Proje için inceleme, düzeltme, test ve özet görevlerinden kuyruk oluştur. Önce duraklat; ben onayladıktan sonra devam ettir."
+
+Araç örnekleri: {"action":"list"}, {"action":"pause"}, {"action":"add","tasks":["Kodu incele","Testleri çalıştır"]}, {"action":"reorder","ids":[2,1]}, {"action":"remove","ids":[2]}, {"action":"resume"}. Sıralama tüm bekleyen kimlikleri bir kez içermelidir. Aktif görev değiştirilemez. Aktif tur sırasında eklenen işler mevcut tura gönderilmez. Araç kullanıldığında Claude bekleyen görev metinlerini bilinçli olarak okuyabilir; normal /qm komutlarının argüman gizleme davranışı korunur. Kuyruk yönetimi isteklerini tekrar tekrar kuyruğa ekletme.
+
+### Bağlam verisi
+
+Eski görünüm açılırken ölçüm yapmıyordu. Yeni native görünüm ve web snapshot resmi $.session.usage() API'sini sorgular. Host sayısal token/pencere döndürmezse neden veri gösterilemediği açıklanır; sahte değer üretilmez. Gateway/API ayarları değiştirilmez. Son kaydedilmiş ölçüm varsa korunabilir. Host hataları Claude debug günlüğüne yazılır. Özel gateway'in her durumda kullanım verisi sağlayacağı garanti edilmez.
+
 ## 0.4.3: mesaj kutusunun üstünde yönetim
 
 - /qm yönetimi mesaj kutusunun üstünde açar. /qm close kapatır. Kuyruk boşken kalıcı QM şeridi görünmez. Ayrıntılar düğmesi tekrar girişi ve istatistikleri açar.
@@ -83,3 +99,6 @@ claude plugin install qm@claude-queue-manager
 ```
 
 > Not: Bu sayfa bir çeviri rehberidir; QM panelinin kendisini yerelleştirmez.
+
+0.5.0 doğrulaması: 55 Node testi, 7 resmi Claude host testi geçti. Playwright ile 24 boyut/dil/görev senaryosu ve 6 etkileşim kontrolü geçti. Bu sürümde kurulu Desktop uygulamasında canlı piksel kontrolü yapılmadı; host testleri bileşen protokolünü doğrular. Kısayollar mod yüzeyi odaktayken çalışır; normal mesaj yazarken genel kısayol değildir.
+

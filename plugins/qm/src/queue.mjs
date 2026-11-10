@@ -67,7 +67,8 @@ export function normalizeState(raw, sessionId, now = Date.now()) {
 export function normalizeUsage(input) {
   const x = input?.context && typeof input.context === 'object' ? input.context : input;
   if (!x || typeof x !== 'object') return null;
-  const tokens = Number(x.tokens), window = Number(x.window);
+  // Missing/null host readings are unknown, never a fabricated zero percent.
+  const tokens = x.tokens, window = x.window;
   if (!Number.isFinite(tokens) || tokens < 0 || !Number.isFinite(window) || window <= 0) return null;
   return { tokens: Math.round(tokens), window: Math.round(window),
     percent: Math.max(0, Math.min(100, Math.round(tokens / window * 1000) / 10)) };
@@ -242,3 +243,4 @@ export function moveSelected(state, ids, placement = 'front') {
   const remaining = state.pending.filter(t => !wanted.has(t.id)).map(t => t.id);
   return reorderByIds(state, placement === 'front' ? [...selected, ...remaining] : [...remaining, ...selected]);
 }
+

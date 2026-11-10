@@ -6,6 +6,9 @@ export const SUPPORTED_UI_LANGUAGES = [
 
 const messages = {
   en: {
+    close:'Close', count:'Count', repeatMessage:'Message to repeat', keys:'Tab / Shift+Tab: focus · Enter: activate · p: pause/resume · q: close',
+    contextMissing:'Host has not reported usage yet. Refresh Context after a model response.',
+    addPaused:'Tasks stay pending until you resume.', addStarts:'When idle, adding tasks starts the first one immediately.', pauseHint:'Pause stops the next dispatch; the current turn finishes.',
     analytics: 'Analytics', contextLabel: 'Context', verifyLabel: 'Verification', retryLabel: 'Retries', timeoutLabel: 'Timeout', historyLabel: 'History', sessionsLabel: 'Sessions', unavailable: 'unavailable', off: 'off', pauseReason: 'Paused because',
     title: 'QUEUE MANAGER', ready: 'READY', paused: 'PAUSED', running: 'RUNNING', working: 'WORKING',
     pending: 'pending', finished: 'recently done', active: 'Active', waiting: 'Waiting for previous turn',
@@ -28,6 +31,9 @@ const messages = {
     invalidRepeat: 'Use: count | task (count from 1 to 200).'
   },
   tr: {
+    close:'Kapat', count:'Adet', repeatMessage:'Tekrarlanacak mesaj', keys:'Tab / Shift+Tab: odak · Enter: seç · p: duraklat/devam · q: kapat',
+    contextMissing:'Host henüz kullanım verisi bildirmedi. Model yanıtından sonra Bağlam ile yenile.',
+    addPaused:'Görevler devam ettirene kadar bekler.', addStarts:'Boştayken görev eklemek ilk görevi hemen başlatır.', pauseHint:'Duraklat sonraki görevi bekletir; çalışan tur tamamlanır.',
     analytics: 'İstatistikler', contextLabel: 'Bağlam', verifyLabel: 'Doğrulama', retryLabel: 'Tekrar', timeoutLabel: 'Zaman aşımı', historyLabel: 'Geçmiş', sessionsLabel: 'Oturumlar', unavailable: 'bilinmiyor', off: 'kapalı', pauseReason: 'Duraklatma nedeni',
     title: 'KUYRUK YÖNETİCİSİ', ready: 'HAZIR', paused: 'DURAKLATILDI', running: 'ÇALIŞIYOR', working: 'MEŞGUL',
     pending: 'bekleyen', finished: 'son tamamlanan', active: 'Aktif', waiting: 'Önceki görev bekleniyor',
@@ -75,3 +81,4 @@ export function parseRepeatForm(value) {
 export function splitPaste(value) {
   return String(value ?? '').split(/\r?\n|\s+\|\|\s+/).map(x => x.trim()).filter(Boolean);
 }
+

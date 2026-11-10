@@ -11,3 +11,4 @@ export function boundedState(state) {
   if (jsonBytes(next) > MAX_STATE_BYTES) throw new Error('Queue storage limit reached. Shorten tasks or split this batch; existing work is unchanged.');
   return next;
 }
+

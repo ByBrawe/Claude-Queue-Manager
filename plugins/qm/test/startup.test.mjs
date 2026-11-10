@@ -97,3 +97,4 @@ test('side panel remains optional and placement failure is visible',async()=>{
  await h.emit('command.run',{args:'side'},{command:'qm'});
  assert.ok(h.notices.some(s=>s.includes('host does not show a pane')));assert.equal(h.sent.length,0);
 });
+

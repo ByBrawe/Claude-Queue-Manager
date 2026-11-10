@@ -33,3 +33,4 @@ if (process.argv[1] === fileURLToPath(import.meta.url)) {
     else releaseLock(dir, source, owner);
   } catch (error) { console.error(error.message); process.exitCode = 1; }
 }
+

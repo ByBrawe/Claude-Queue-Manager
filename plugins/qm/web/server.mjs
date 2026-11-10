@@ -80,7 +80,7 @@ export function createDashboard({ token = randomBytes(32).toString('hex'), port 
     }
     try {
       if (req.method === 'GET' && url.pathname === '/api/state') {
-        return send(res, 200, { state: snapshot, revision, waiting: Boolean(waitingAction), lastAck });
+        return send(res, 200, { state: snapshot, revision, waiting: Boolean(waitingAction), lastAck, lastModContact });
       }
       if (req.method === 'GET' && url.pathname === '/api/action') {
         lastModContact = Date.now();
@@ -114,6 +114,8 @@ export function createDashboard({ token = randomBytes(32).toString('hex'), port 
         }
         revision = body.revision;
         snapshot = {
+          sessionId: body.state.sessionId ?? null,
+          locale: body.state.locale ?? null,
           pending: body.state.pending,
           running: body.state.running ?? null,
           done: body.state.done ?? [],
@@ -166,3 +168,4 @@ if (process.argv[1] && /(?:^|[\\/])server\.mjs$/.test(process.argv[1])) {
   if (!Number.isInteger(port) || port < 1024 || port > 65535) process.exit(2);
   createDashboard({ port, token }).listen().catch(() => { process.exitCode = 1; });
 }
+

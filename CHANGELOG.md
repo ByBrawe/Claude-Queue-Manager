@@ -1,3 +1,13 @@
+## 0.5.0 — Consistent native / CLI / web UX
+
+- Responsive native form layout, compact inline view, full-width input wrappers, separate repeat fields, keyboard actions and per-row delete confirmation.
+- Complete Turkish/English controls and localized CLI help.
+- Compact dark web workspace, session identity, repeat form, acknowledged draft preservation, reconnect state, keyboard focus and stable delete selection.
+- Read official host context data during native rendering and web snapshots, rather than only during queue dispatch.
+- Add Claude-facing mcp__qm__queue tool: list, add, reorder, remove, pause and resume using the existing queue state and synchronization.
+- Preserve slash commands, queue engine, recovery and gateway settings.
+- Add official host tool integration coverage and optional Playwright visual/interaction QA script.
+
 ## 0.4.4 — Native form layout
 
 - Put task and repeat captions above their inputs instead of beside them so narrow Desktop panes retain a usable editor width.

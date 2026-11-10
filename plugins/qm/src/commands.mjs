@@ -127,3 +127,27 @@ export const HELP = [
   '/qm lang tr | en           Switch panel language',
   '/qm -- <text>              Queue literal reserved words'
 ].join('\n');
+
+export const HELP_TR = [
+'/qm — Mesaj kutusunun üstünde yönetimi aç',
+'/qm side | inline | close — Yan panel / satır içi görünüm / kapat',
+'/qm add <görev> — Tek görev ekle',
+'/qm repeat <1-200> <görev> — Ayrı turlarda tekrarla',
+'/qm batch A || B — Sıralı toplu ekleme',
+'/qm pause | resume — Sonraki görevi beklet / devam ettir',
+'/qm mv 3 1 | rm 2 | edit 2 <metin> — Sırala / sil / düzenle',
+'/qm clear | undo — Bekleyenleri sil / son değişikliği geri al',
+'/qm verify off|marker|ai [model] — Tamamlanma doğrulaması',
+'/qm retry 2 5s | retry last — Sınırlı tekrar / son başarısız işi yeniden ekle',
+'/qm timeout 10m|off — Tur sonunda değerlendirilen yumuşak süre sınırı',
+'/qm context [85|off] — Gerçek bağlam verisi / eşik',
+'/qm if success|failure <görev> — Son sonuca bağlı görev',
+'/qm onfail pause|continue — Başarısızlık politikası',
+'/qm history [1-50] | stats | settings — Geçmiş / istatistik / ayarlar',
+'/qm sessions | restore <oturum> [recover] — Oturumları göster / taşı',
+'/qm recover — Yeniden açılan oturumda sahipsiz görevi geri al',
+'/qm web | web stop — Yerel web panelini aç / durdur',
+'/qm lang tr|en — Arayüz dili',
+'/qm -- <metin> — Ayrılmış sözcükleri görev olarak ekle'
+].join('\n');
+

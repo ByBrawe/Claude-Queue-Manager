@@ -81,3 +81,4 @@ test('browser dashboard enforces token, loopback host, origin, revision, operati
   assert.equal(current.lastAck.id,action.id);
   assert.equal((await fetch(api(port,'state'),options('POST',{revision:1,state:initial}))).status,400);
 });
+

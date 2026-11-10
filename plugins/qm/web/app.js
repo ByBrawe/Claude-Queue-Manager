@@ -12,6 +12,10 @@ let searchTerm = '';
 let dragging = null;
 let locale = 'en';
 let toastTimer;
+let online=false;
+let modalSelection=[];
+let repeatDraftPending=null;
+let lastFocus=null;
 
 const labels = {
   en: {
@@ -57,6 +61,8 @@ const labels = {
     noDragFilter: 'Sürüklemek için arama filtresini temizle.'
   }
 };
+Object.assign(labels.en,{headline:'Your task queue',subtitle:'One session. One task at a time.',empty:'Your queue is empty. Add a task to get started.',repeatTitle:'Repeat a message',count:'Count',message:'Message',repeatAdd:'Add repetitions',current:'Current task',pauseHelp:'Pause waits for the current turn to finish; pending tasks stay queued.',starts:'Adding tasks starts the first one immediately when Claude is idle.',held:'Tasks stay pending until you resume.',retryConnection:'Connection lost. Reconnecting automatically… Your draft is kept.',stopped:'Claude session is not responding. Reopen /qm web in that session.',missingContext:'Host has not reported usage yet. Readings become available after a model response.',session:'Session',up:'Move up',down:'Move down',selectTask:'Select task',historyTitle:'History and analytics'});
+Object.assign(labels.tr,{headline:'Görev kuyruğun',subtitle:'Tek oturum. Her seferinde bir görev.',empty:'Kuyruk boş. Başlamak için bir görev ekle.',repeatTitle:'Mesajı tekrarla',count:'Adet',message:'Mesaj',repeatAdd:'Tekrarları ekle',current:'Çalışan görev',pauseHelp:'Duraklat, çalışan turun bitmesini bekler; bekleyen görevleri başlatmaz.',starts:'Claude boştaysa eklediğin ilk görev hemen başlar.',held:'Görevler devam ettirene kadar bekler.',retryConnection:'Bağlantı kesildi. Otomatik yeniden bağlanılıyor… Taslağın korundu.',stopped:'Claude oturumu yanıt vermiyor. O oturumda /qm web komutunu yeniden aç.',missingContext:'Host henüz kullanım verisi bildirmedi. Model yanıtından sonra veri alınabilir.',session:'Oturum',up:'Yukarı taşı',down:'Aşağı taşı',selectTask:'Görevi seç',historyTitle:'Geçmiş ve istatistikler'});
 const t = () => labels[locale];
 function toast(message, bad = false) {
   const el = $('toast'); el.textContent = message;
@@ -75,6 +81,9 @@ async function request(path, options = {}) {
   return data;
 }
 function markConnected(ok) {
+  online=ok;
+  $('connection-error').classList.toggle('hidden',ok);
+  $('connection-error').textContent=ok?'':t().retryConnection;
   $('conn').textContent = '● ' + (ok ? t().connected : t().disconnected);
   $('conn').classList.toggle('offline', !ok);
 }
@@ -95,6 +104,11 @@ function translated() {
   $('delete-selected').textContent = m.remove; $('confirm-title').textContent = m.confirm;
   $('confirm-text').textContent = m.confirmText; $('cancel-confirm').textContent = m.cancel;
   $('confirm-delete').textContent = m.delete; $('queue-hint').textContent = m.queueHint;
+  $('repeat-title').textContent=m.repeatTitle; $('repeat-count-label').textContent=m.count; $('repeat-message-label').textContent=m.message; $('repeat-add').textContent=m.repeatAdd;
+  $('current-title').textContent=m.current; $('pause-help').textContent=m.pauseHelp; $('tasks-label').textContent=m.addSection;
+  $('analytics-title').textContent=m.historyTitle; $('tasks-input').placeholder=locale==='tr'?'Testleri çalıştır\nHataları düzelt':'Run tests\nFix failures';
+  $('repeat-message').placeholder=locale==='tr'?'Devam et':'Continue'; $('locale').setAttribute('aria-label',locale==='tr'?'Dil':'Language');
+  $('search').setAttribute('aria-label',m.search);
   document.documentElement.lang = locale;
 }
 function el(tag, classes, text) {
@@ -106,22 +120,28 @@ function el(tag, classes, text) {
 function taskIds() { return snapshot?.pending.map(p => p.id) || []; }
 function selectedIds() { return taskIds().filter(id => selected.has(id)); }
 function render() {
+  const focusKey = document.activeElement?.id;
   const m = t(); const s = snapshot;
   $('pending-count').textContent = s ? s.pending.length : '—';
   $('active-count').textContent = s ? Number(Boolean(s.running)) : '—';
-  $('done-count').textContent = s ? s.done.length : '—';
+  $('done-count').textContent = s ? (s.stats ? (s.stats.success||0)+(s.stats.failure||0)+(s.stats.timeout||0)+(s.stats.unknown||0) : s.done.length) : '—';
   $('status').textContent = s ? s.paused ? m.paused : s.running ? m.running : s.busy ? m.working : m.ready : '—';
+  $('status').style.color=s?.paused?'var(--pause)':'var(--accent)';
   $('toggle-pause').textContent = s?.paused ? m.resume : m.pause;
-  $('toggle-pause').disabled = !s || Boolean(pendingActionId);
-  $('add-tasks').disabled = !s || Boolean(pendingActionId);
+  $('toggle-pause').disabled = !online || !s || Boolean(pendingActionId);
+  $('toggle-pause').classList.toggle('paused',Boolean(s?.paused));
+  $('session-id').textContent=s?.sessionId?`${m.session}: ${s.sessionId}`:'—';
+  $('add-behavior').textContent=s?.paused?m.held:m.starts;
+  $('repeat-add').disabled=!online||!s||Boolean(pendingActionId);
+  $('add-tasks').disabled = !online || !s || Boolean(pendingActionId);
   $('active-title').textContent = s?.running?.text || m.activeEmpty;
   $('active-subtitle').textContent = m.activeDesc;
-  $('context-panel').textContent = `${m.contextName}: ${s?.context ? `${s.context.percent}% (${s.context.tokens}/${s.context.window})` : m.unavailable}`;
+  $('context-panel').textContent = `${m.contextName}: ${s?.context ? `${s.context.percent}% (${s.context.tokens}/${s.context.window})` : m.missingContext}`;
   const counts = s?.stats;
   $('stats-panel').textContent = counts ? `${counts.success} ${m.passed} • ${(counts.failure||0)+(counts.timeout||0)} ${m.failedCount} • ${counts.retried||0} ${m.retried} • ${counts.skipped||0} ${m.skipped}` : '—';
   const history = $('history-panel'); history.replaceChildren();
   for (const item of (s?.history || []).slice(0, 5)) {
-    history.append(el('p', 'muted tiny', `${item.status || 'success'} · ${Math.round((item.durationMs || 0)/1000)}s · ${item.text.slice(0, 75)}`));
+    history.append(el('p', `muted tiny outcome-${item.status}`,  `${({success:m.passed,failure:m.failedCount,timeout:locale==='tr'?'zaman aşımı':'timeout',unknown:m.unavailable,skipped:m.skipped})[item.status] || item.status || m.passed} · ${Math.round((item.durationMs || 0)/1000)}s · ${item.text.slice(0, 75)}`));
   }
 
   $('drag-tip').textContent = searchTerm ? m.filtered : m.drag;
@@ -131,7 +151,7 @@ function render() {
   $('selected-badge').textContent = selection.length ? `(${selection.length})` : '';
   $('selected-label').textContent = `${selection.length} ${m.selected}`;
   $('batch-actions').classList.toggle('hidden', !selection.length);
-  for (const button of ['move-top','move-bottom','delete-selected']) $(button).disabled = !selection.length || Boolean(pendingActionId);
+  for (const button of ['move-top','move-bottom','delete-selected']) $(button).disabled = !online || !selection.length || Boolean(pendingActionId);
   $('queue-count').textContent = `${items.length} ${m.countHint}${pendingActionId ? ' · ' + m.waiting : ''}`;
   const filtered = items.filter(x => x.text.toLocaleLowerCase().includes(searchTerm));
   const holder = $('task-list'); holder.replaceChildren();
@@ -143,11 +163,12 @@ function render() {
     const index = items.findIndex(x => x.id === task.id) + 1;
     const row = el('div', `row-task${selected.has(task.id) ? ' is-selected' : ''}`);
     row.dataset.taskId = task.id;
-    row.draggable = !searchTerm && !pendingActionId;
+    row.draggable = online && !searchTerm && !pendingActionId;
     const grip = el('button', 'grab' + (searchTerm ? ' disabled' : ''), '⠿');
     grip.type = 'button'; grip.title = m.drag; grip.setAttribute('aria-label',m.drag);
     const check = el('input','task-check'); check.type = 'checkbox'; check.checked = selected.has(task.id);
-    check.setAttribute('aria-label',`Select task ${index}`);
+    check.id = `qm-task-${task.id}`;
+    check.setAttribute('aria-label',`${m.selectTask} ${index}`);
     check.addEventListener('change', () => {
       if (check.checked) selected.add(task.id); else selected.delete(task.id);
       render();
@@ -155,10 +176,10 @@ function render() {
     const label = el('span','number',String(index).padStart(2,'0'));
     const content = el('div','task-content',(task.when && task.when !== 'always' ? `[if ${task.when}] ` : '') + task.text);
     const actions = el('div','row-actions');
-    const moveUp = el('button','icon-button','↑'); moveUp.title = m.top;
-    moveUp.disabled = pendingActionId || index === 1;
+    const moveUp = el('button','icon-button','↑'); moveUp.title = m.up; moveUp.setAttribute('aria-label',m.up);
+    moveUp.disabled = !online || pendingActionId || index === 1;
     moveUp.onclick = () => moveOne(task.id, -1);
-    const moveDown = el('button','icon-button','↓'); moveDown.title = m.bottom;
+    const moveDown = el('button','icon-button','↓'); moveDown.title = m.down; moveDown.setAttribute('aria-label',m.down);
     moveDown.disabled = pendingActionId || index === items.length;
     moveDown.onclick = () => moveOne(task.id, +1);
     actions.append(moveUp,moveDown);
@@ -192,30 +213,35 @@ function render() {
     }
     holder.append(row);
   }
+  if (focusKey?.startsWith('qm-task-')) document.getElementById(focusKey)?.focus({preventScroll:true});
 }
 async function refresh() {
   if (!token) { markConnected(false); return; }
   try {
     const data = await request('/api/state');
-    markConnected(true);
+    markConnected(!data.lastModContact || Date.now()-data.lastModContact<8000);
+    if(!online)$('connection-error').textContent=t().stopped;
     revision = data.revision;
     snapshot = data.state;
     if (pendingActionId && data.lastAck?.id === pendingActionId) {
       const ack = data.lastAck; pendingActionId = null;
       if (ack.ok && pendingDraft !== null && $('tasks-input').value === pendingDraft) $('tasks-input').value = '';
       pendingDraft = null;
+      if(ack.ok && repeatDraftPending && $('repeat-message').value===repeatDraftPending.message){$('repeat-message').value='';}
+      repeatDraftPending=null;
       toast(ack.ok ? t().applied : `${t().failed}: ${ack.error}`,!ack.ok);
     }
     // A running drag must not be interrupted by a periodic rerender.
     if (!dragging) render();
   } catch (error) {
     markConnected(false);
+    render();
     if (error.status === 401) toast(t().auth,true);
   }
 }
 async function action(operation) {
   if (pendingActionId) { toast(t().busy,true);return; }
-  if (!snapshot) { toast(t().disconnected,true);return; }
+  if (!online || !snapshot) { toast(t().disconnected,true);return; }
   try {
     const data = await request('/api/action',{method:'POST',body:JSON.stringify({revision,operation})});
     pendingActionId = data.accepted;
@@ -241,8 +267,8 @@ async function addTasks() {
   // Preserve the draft until the mod actually acknowledges a successful add.
   if (await action({type:'add',texts})) pendingDraft = draft;
 }
-function confirmDelete() { $('overlay').classList.remove('hidden'); }
-function dismissDelete() { $('overlay').classList.add('hidden'); }
+function confirmDelete() { modalSelection=selectedIds(); lastFocus=document.activeElement; $('overlay').classList.remove('hidden'); $('cancel-confirm').focus(); }
+function dismissDelete() { $('overlay').classList.add('hidden'); lastFocus?.focus(); }
 $('toggle-pause').onclick = () => void action({type:snapshot?.paused?'resume':'pause'});
 $('undo-selection').onclick = () => { selected.clear(); render(); };
 $('select-all').onclick = () => {
@@ -254,12 +280,16 @@ $('move-top').onclick=()=>moveGroup('top');
 $('move-bottom').onclick=()=>moveGroup('bottom');
 $('delete-selected').onclick=confirmDelete;
 $('cancel-confirm').onclick=dismissDelete;
-$('confirm-delete').onclick=()=>{dismissDelete();void action({type:'remove',ids:selectedIds()});};
+$('confirm-delete').onclick=()=>{dismissDelete();void action({type:'remove',ids:modalSelection});};
 $('overlay').onclick=e=>{if(e.target===$('overlay'))dismissDelete();};
 $('search').oninput=e=>{searchTerm=String(e.target.value).toLocaleLowerCase().trim();render();};
 $('add-tasks').onclick=addTasks;
-$('locale').onchange=e=>{locale=e.target.value==='tr'?'tr':'en';translated();render();markConnected(Boolean(snapshot));};
+$('locale').onchange=e=>{locale=e.target.value==='tr'?'tr':'en';try{localStorage.setItem('qm-locale',locale);}catch{}translated();render();markConnected(online);};
+$('repeat-add').onclick=async()=>{const count=Number($('repeat-count').value),message=$('repeat-message').value.trim();if(!Number.isInteger(count)||count<1||count>200||!message||message.length>20000){toast(t().invalid,true);return;}if(await action({type:'add',texts:Array(count).fill(message)}))repeatDraftPending={message};};
+document.addEventListener?.('keydown',e=>{if($('overlay').classList.contains('hidden'))return;if(e.key==='Escape')dismissDelete();if(e.key==='Tab'){e.preventDefault();(document.activeElement===$('cancel-confirm')?$('confirm-delete'):$('cancel-confirm')).focus();}});
+try{locale=localStorage.getItem('qm-locale')==='tr'?'tr':'en';}catch{} $('locale').value=locale;
 if (!token) toast('Open the private URL from /qm web (missing token).',true);
 translated();
 void refresh();
 setInterval(refresh,1200);
+

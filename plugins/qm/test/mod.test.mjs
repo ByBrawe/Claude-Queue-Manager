@@ -115,13 +115,13 @@ test('TUI/desktop panel renders controls and queue content without model calls',
   await h.emit('command.run', { args: 'pause' }, { command: 'qm' });
   await h.emit('command.run', { args: 'batch fix bug || run tests' }, { command: 'qm' });
   let ui = await panel(h);
-  assert.equal(controls(ui, x => x.key === 'qm-repeat-tasks').length,0);
+  assert.equal(controls(ui, x => x.key === 'qm-repeat-message').length,0);
   await controls(ui, x => x.key === 'qm-details')[0].onPress();
   ui = await panel(h);
   const inputs = controls(ui, x => x.key?.startsWith('qm-') && typeof x.onInput === 'function');
   const buttons = controls(ui, x => x.key?.startsWith('qm-') && typeof x.onPress === 'function');
   assert.ok(inputs.some(x => x.key === 'qm-add-tasks'));
-  assert.ok(inputs.some(x => x.key === 'qm-repeat-tasks'));
+  assert.ok(inputs.some(x => x.key === 'qm-repeat-message'));
   assert.ok(inputs.some(x => x.key === 'qm-search'));
   assert.ok(buttons.some(x => x.key === 'qm-edit-1'));
   assert.ok(buttons.some(x => x.key === 'qm-rm-2'));
@@ -148,8 +148,10 @@ test('panel paste, repeat, search, language and confirm-to-clear work', async ()
   ui = await panel(h);
   await controls(ui, x => x.key === 'qm-details')[0].onPress();
   ui = await panel(h);
-  const repeat = controls(ui, x => x.key === 'qm-repeat-tasks')[0];
-  await repeat.onSubmit('3 | continue');
+  const repeat = controls(ui, x => x.key === 'qm-repeat-message')[0];
+  repeat.onInput('continue');
+  controls(ui,x=>x.key==='qm-repeat-count')[0].onInput('3');
+  await controls(ui,x=>x.key==='qm-repeat-action')[0].onPress();
   let state = [...h.memory.entries()].find(([key]) => key.includes(':queue:'))[1];
   assert.deepEqual(state.pending.map(x => x.text), ['alpha','beta','gamma','continue','continue','continue']);
   const search = controls(ui, x => x.key === 'qm-search')[0];

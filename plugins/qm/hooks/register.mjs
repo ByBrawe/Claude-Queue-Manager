@@ -1,11 +1,11 @@
 // Queue Manager is a self-contained Claude Code mod.
 // It never injects queued text into the current turn. Each item is submitted
 // as a new user turn after a successful main turn.complete event.
-import { initialState, normalizeState, enqueue, remove, move, edit, clear, undo,
+import { initialState, normalizeState, normalizeUsage, enqueue, remove, move, edit, clear, undo,
   claim, settleTurn, recordContext, configure, statsText, retryLast, rejectSubmission, recover,
   removeByIds, reorderByIds, moveSelected } from '../src/queue.mjs';
 import { MARKER_NOTE, verdictFromText, parseAiVerdict, buildVerificationPrompt } from '../src/verification.mjs';
-import { parseCommand, HELP } from '../src/commands.mjs';
+import { parseCommand, HELP, HELP_TR } from '../src/commands.mjs';
 import { uiStrings, filteredPage, parseRepeatForm, splitPaste, SUPPORTED_UI_LANGUAGES } from '../src/view.mjs';
 import { boundedState } from '../src/persistence.mjs';
 
@@ -38,6 +38,9 @@ const PREFS_KEY = 'claude-queue-manager:prefs:locale';
 let startupWarning = null;
 let managerOpen = false;
 let detailsOpen = false;
+let rowRemoveArmed = null;
+let repeatCount = '5';
+let repeatText = '';
 let carryOver = false;
 let verificationEpoch = 0;
 let activeTurnId = null;
@@ -146,11 +149,12 @@ async function webRequest($, path, method = 'GET', data = null) {
 async function sendWebSnapshot($) {
   if (!web) return;
   try {
+    const context = normalizeUsage(await readUsage($)) ?? cached.context;
     await webRequest($, 'state', 'POST', {
       revision: webRevision,
-      state: { pending: cached.pending, running: cached.running, done: cached.done,
+      state: { sessionId: cachedSessionId, locale: language, pending: cached.pending, running: cached.running, done: cached.done,
         paused: cached.paused, busy: cached.busy, stats: cached.stats,
-        context: cached.context, config: cached.config, pauseReason: cached.pauseReason,
+        context, config: cached.config, pauseReason: cached.pauseReason,
         history: cached.history.slice(0, 12) },
       ...(webAck ? { ack: webAck } : {})
     });
@@ -395,7 +399,7 @@ async function perform($, text) {
     try { await $.ui.close({ id: PANE_ID }); } catch {}
     return '';
   }
-  if (intent.type === 'help') return HELP;
+  if (intent.type === 'help') return language === 'tr' ? HELP_TR : HELP;
   if (intent.type === 'web') return startWeb($);
   if (intent.type === 'web-stop') { await stopWeb($); return 'QM: web dashboard stopped'; }
   if (intent.type === 'sessions') return listSessions($);
@@ -530,7 +534,10 @@ async function actGroup($, kind) {
 }
 
 async function drawPane($, e) {
-  try { return await buildPane($, e); }
+  try {
+    if (e.component === 'AbovePrompt' && !detailsOpen) return await drawInline($, e);
+    return await buildPane($, e);
+  }
   catch (error) {
     const { Box, Text, Button } = $.ui.resolve(e);
     return block(Box, [node(Text, `Queue Manager: ${String(error?.message ?? error)}`, { color: 'yellow' }),
@@ -538,26 +545,53 @@ async function drawPane($, e) {
   }
 }
 
+// The composer has its own compact view, rather than a squeezed side pane.
+async function drawInline($, e) {
+  const {Box,Text,Button,Input}= $.ui.resolve(e);
+  const t=uiStrings(language), state=await readState($);
+  async function add(value) {
+    const items=splitPaste(value);if(!items.length)return;
+    const result=await act($,`batch ${items.join(' || ')}`);
+    if(!result.startsWith('QM error:')){bulkDraft='';redraw($);}
+  }
+  return block(Box,[
+    node(Text,`Queue Manager · ${status(state,t)} · ${state.pending.length} ${t.pending}`,{bold:true,color:state.paused?'yellow':'cyan'}),
+    Box({width:'100%',flexDirection:'column',children:[Input({key:'qm-add-tasks',rows:2,value:bulkDraft,placeholder:t.addHint,autoFocus:true,onInput:v=>bulkDraft=v,onSubmit:add})]}),
+    node(Text,state.paused?t.addPaused:t.addStarts,{dimColor:true}),
+    Box({flexDirection:'row',flexWrap:'wrap',columnGap:1,children:[
+      button(Button,'qm-add-action',t.addButton,()=>add(bulkDraft),{variant:'primary'}),
+      button(Button,'qm-toggle',state.paused?t.resume:t.pause,()=>act($,state.paused?'resume':'pause'),{hotkey:'p'}),
+      button(Button,'qm-details',language==='tr'?'Genişlet':'Expand',()=>{detailsOpen=true;redraw($);},{plain:true}),
+      button(Button,'qm-side',language==='tr'?'Yan panel':'Side panel',()=>act($,'side'),{plain:true}),
+      button(Button,'qm-close',t.close,()=>act($,'close'),{plain:true,hotkey:'q',role:'dismiss'})
+    ]})
+  ],{rowGap:0});
+}
+
 async function buildPane($, e) {
   const { Box, Text, Button, Input, Select } = $.ui.resolve(e);
   const inline = e.component === 'AbovePrompt';
+  const expanded = !inline || detailsOpen;
   const t = uiStrings(language);
   const state = await readState($);
+  const liveContext = normalizeUsage(await readUsage($));
+  const context = liveContext ?? state.context;
+  const narrow = (e.props?.bodyColumns || 60) < 70;
   const view = filteredPage(state.pending, searchText, page, inline ? 4 : MAX_PAGE);
   page = view.page;
   for (const id of selectedIds) if (!state.pending.some(x => x.id === id)) selectedIds.delete(id);
   const selection = state.pending.filter(x => selectedIds.has(x.id));
 
-  const title = node(Text, `${language === 'tr' ? 'Kuyruk' : 'Queue'} · ${status(state, t)}`, {
+  const title = node(Text, `Queue Manager · ${status(state, t)}`, {
     color: state.paused ? 'yellow' : state.running ? 'green' : 'cyan', bold: true
   });
-  const stats = node(Text, `${state.pending.length} ${t.pending}   •   ${state.stats.success} ✓   ${state.stats.failure + state.stats.timeout} ✕   ${state.stats.retried} ↺   ${state.stats.skipped} ↷`, { dimColor: true });
-  const contextLine = node(Text, `${t.contextLabel}: ${state.context ? `${state.context.percent}% (${state.context.tokens}/${state.context.window})` : t.unavailable}   •   ${t.verifyLabel}: ${state.config.verify}   •   ${t.retryLabel}: ${state.config.retries}   •   ${t.timeoutLabel}: ${state.config.timeoutMs ? `${Math.round(state.config.timeoutMs/1000)}s` : t.off}`, { dimColor: true });
+  const stats = node(Text, `${state.pending.length} ${t.pending} · ${state.running ? 1 : 0} ${t.active} · ${state.stats.success} ${t.done}`, { dimColor: true });
+  const contextLine = node(Text, `${t.contextLabel}: ${context ? `${context.percent}% (${context.tokens}/${context.window})` : t.contextMissing} · ${t.verifyLabel}: ${state.config.verify} · ${t.retryLabel}: ${state.config.retries} · ${t.timeoutLabel}: ${state.config.timeoutMs ? `${Math.round(state.config.timeoutMs/1000)}s` : t.off}`, { dimColor: true });
   const pauseInfo = state.pauseReason ? node(Text, `${t.pauseReason}: ${state.pauseReason}`, { color: 'yellow' }) : null;
   const recentOutcomes = state.history.slice(0, 4).map(item => node(Text,
     `#${item.id} ${item.status || 'success'} · ${Math.round((item.durationMs || 0)/1000)}s · ${shortened(item.text, 65)}`,
     { dimColor: true }));
-  const advancedActions = Box({ flexDirection: 'row', columnGap: 1, children: [
+  const advancedActions = Box({ flexDirection: 'row', flexWrap: 'wrap', columnGap: 1, children: [
     button(Button, 'qm-stats', t.analytics, () => act($, 'stats')),
     button(Button, 'qm-context', t.contextLabel, () => act($, 'context')),
     button(Button, 'qm-history', t.historyLabel, () => act($, 'history')),
@@ -569,7 +603,7 @@ async function buildPane($, e) {
 
   const actionRow = Box({ flexDirection: 'row', flexWrap: 'wrap', columnGap: 1, children: [
     button(Button, 'qm-toggle', state.paused ? t.resume : t.pause,
-      () => act($, state.paused ? 'resume' : 'pause')),
+      () => act($, state.paused ? 'resume' : 'pause'), { variant: 'primary', hotkey: 'p' }),
     button(Button, 'qm-undo', t.undo, () => act($, 'undo'), { disabled: !state.undo.length }),
     button(Button, 'qm-clear', clearArmed ? t.confirmClear : t.clear, async () => {
       if (!clearArmed) { clearArmed = true; redraw($); return; }
@@ -600,9 +634,9 @@ async function buildPane($, e) {
   }
   const pasteInput = Input
     ? block(Box, [node(Text, language === 'tr' ? 'Görevler' : 'Tasks', { bold: true }),
-      Input({ key: 'qm-add-tasks', rows: inline ? 3 : 5, value: bulkDraft, autoFocus: true,
+      Box({ width: '100%', flexDirection: 'column', children: [Input({ key: 'qm-add-tasks', rows: inline ? 2 : 4, value: bulkDraft, autoFocus: true,
       placeholder: t.addHint, onInput: value => { bulkDraft = String(value ?? ''); },
-      onSubmit: queuePasted }), node(Text, language === 'tr' ? 'Her satıra bir görev yaz veya || ile ayır.' : 'One task per line, or separate with ||.', { dimColor: true })], { rowGap: 0 })
+      onSubmit: queuePasted })] }), node(Text, state.paused ? t.addPaused : t.addStarts, { dimColor: true })], { rowGap: 0 })
     : node(Text, '/qm batch task 1 || task 2');
 
   const repeatInput = Input
@@ -630,13 +664,13 @@ async function buildPane($, e) {
     }, { disabled: !selection.length })
   ] });
 
-  const rows = view.rows.map(task => {
+  const rows = view.rows.map((task, rowIndex) => {
     const activeEdit = editId === task.id;
-    return Box({ key: `qm-task-${task.id}`, flexDirection: 'row', columnGap: 1, children: [
+    return Box({ key: `qm-task-${task.id}`, flexDirection: narrow ? 'column' : 'row', columnGap: 1, children: [
       button(Button, `qm-check-${task.id}`, selectedIds.has(task.id) ? '[x]' : '[ ]', () => {
         if (selectedIds.has(task.id)) selectedIds.delete(task.id); else selectedIds.add(task.id);
         groupRemoveArmed = false; redraw($);
-      }, { plain: true }),
+      }, { plain: true, hotkey: String(rowIndex + 1).length === 1 ? String(rowIndex + 1) : undefined }),
       node(Text, `${task.position}. ${task.when !== 'always' ? `[if ${task.when}] ` : ''}${shortened(task.text, Math.max(16, (e.props?.bodyColumns || 116) - 24))}`, {
         color: activeEdit ? 'cyan' : undefined, bold: activeEdit, wrap: 'truncate-end'
       }),
@@ -647,7 +681,10 @@ async function buildPane($, e) {
         { plain: true, disabled: task.position <= 1 }),
       button(Button, `qm-down-${task.id}`, '↓', () => actTask($, task.id, 'move', 1),
         { plain: true, disabled: task.position >= state.pending.length }),
-      button(Button, `qm-rm-${task.id}`, '×', () => actTask($, task.id, 'remove'), { plain: true })
+      button(Button, `qm-rm-${task.id}`, rowRemoveArmed === task.id ? t.confirmClear : t.remove, () => {
+        if (rowRemoveArmed !== task.id) { rowRemoveArmed = task.id; redraw($); return; }
+        rowRemoveArmed = null; return actTask($, task.id, 'remove');
+      }, { plain: true })
     ] });
   });
 
@@ -686,18 +723,23 @@ async function buildPane($, e) {
 
   return block(Box, [
     Box({ flexDirection: 'row', flexWrap: 'wrap', columnGap: 2, children: [title,
-      button(Button, 'qm-close', language === 'tr' ? 'Kapat' : 'Close', () => act($, 'close'), { plain: true }),
+      button(Button, 'qm-close', t.close, () => act($, 'close'), { plain: true, hotkey: 'q', role: 'dismiss' }),
       button(Button, 'qm-side', language === 'tr' ? 'Yan panel' : 'Side panel', () => act($, 'side'), { plain: true })] }),
-    ...(state.pending.length || state.running ? [stats, active, actionRow] : []),
+    stats, ...(expanded ? [actionRow] : [button(Button,'qm-toggle',state.paused?t.resume:t.pause,()=>act($,state.paused?'resume':'pause'),{variant:'primary',hotkey:'p'})]),
+    ...(state.running ? [active] : !inline ? [node(Text, t.empty, {dimColor:true})] : []),
+    ...(expanded ? [node(Text, t.pauseHint, { dimColor: true })] : []),
     ...(pauseInfo ? [pauseInfo] : []), ...(confirmNotice ? [confirmNotice] : []),
-    pasteInput, button(Button, 'qm-add-action', t.addButton, () => queuePasted(bulkDraft)),
-    ...(detailsOpen ? [repeatInput, button(Button, 'qm-repeat-action', t.repeatButton, () => queueRepeated(repeatDraft))] : []),
-    ...(state.pending.length ? [search, selectionRow] : []),
-    ...(view.rows.length ? rows : state.pending.length ? [node(Text, t.noMatch, { dimColor: true })] : []),
-    ...(view.totalPages > 1 ? [pages] : []), ...(editing ? [editBox] : []), ...(recover ? [recover] : []),
+    pasteInput, button(Button, 'qm-add-action', t.addButton, () => queuePasted(bulkDraft), {variant:'primary'}),
+    ...(detailsOpen ? [
+      node(Text,t.repeatButton,{bold:true}),
+      Input({key:'qm-repeat-count',label:t.count,value:repeatCount,onInput:v=>repeatCount=v,onSubmit:v=>{repeatCount=v;}}),
+      Box({width:'100%',flexDirection:'column',children:[Input({key:'qm-repeat-message',value:repeatText,placeholder:t.repeatMessage,rows:2,onInput:v=>repeatText=v,onSubmit:v=>{repeatText=v;}})]}),
+      button(Button, 'qm-repeat-action', t.repeatButton, () => queueRepeated(`${repeatCount} | ${repeatText}`))] : []),
+    ...(expanded && state.pending.length ? [search, selectionRow] : []),
+    ...(expanded ? (view.rows.length ? rows : state.pending.length ? [node(Text, t.noMatch, { dimColor: true })] : []) : []),
+    ...(expanded && view.totalPages > 1 ? [pages] : []), ...(editing ? [editBox] : []), ...(recover ? [recover] : []),
     button(Button, 'qm-details', language === 'tr' ? (detailsOpen ? 'Ayrıntıları gizle' : 'Ayrıntılar') : (detailsOpen ? 'Hide details' : 'Details'), () => { detailsOpen = !detailsOpen; redraw($); }, { plain: true }),
-    ...(detailsOpen ? [langControl, contextLine, advancedActions,
-      ...(!state.pending.length && !state.running ? [actionRow] : []),
+    ...(detailsOpen ? [langControl, contextLine, node(Text,t.keys,{dimColor:true}), advancedActions,
       ...(state.undo.length && !state.pending.length && !state.running ? [button(Button, 'qm-empty-undo', t.undo, () => act($, 'undo'))] : []),
       ...(recent ? [recent] : []), ...recentOutcomes, node(Text, t.help, { dimColor: true })] : [])
   ], { rowGap: 1 });
@@ -717,6 +759,14 @@ export function register(on) {
       // Command registration failure must not silently prevent button access.
       reportStartupIssue($, 'command /qm', error);
     }
+    try {
+      await $.tool.register({ name: 'queue', description: 'Manage this session\'s Queue Manager when the user asks you to plan or arrange queued work. Read the queue, add tasks, reorder/remove pending IDs, or pause/resume. The current turn is never interrupted. Do not recursively queue queue-management requests.',
+        inputSchema: { type: 'object', properties: {
+          action: {type:'string',enum:['list','add','reorder','remove','pause','resume']},
+          tasks: {type:'array',items:{type:'string'},maxItems:200},
+          ids: {type:'array',items:{type:'integer'},maxItems:500}
+        }, required:['action'], additionalProperties:false } });
+    } catch (error) { logError($, error); }
     try {
       const incomingSession = await $.session.id();
       if (cachedSessionId !== incomingSession) {
@@ -803,6 +853,23 @@ export function register(on) {
   on('command.run', { command: 'qm' }, async ($, e) => {
     const result = await safePerform($, e.args ?? '');
     return result ? { text: result } : {};
+  });
+
+  on('tool.call', { tool: 'mcp__qm__queue' }, async ($, e) => {
+    try {
+      if (e.action === 'add') {
+        await change($, (state, now) => enqueue(state, e.tasks, 'end', now));
+        scheduleNext($);
+      } else if (e.action === 'reorder' || e.action === 'remove') {
+        await change($, state => e.action === 'reorder' ? reorderByIds(state, e.ids) : removeByIds(state, e.ids));
+      } else if (e.action === 'pause' || e.action === 'resume') {
+        const result = await safePerform($, e.action);
+        if (result.startsWith('QM error:')) throw new Error(result);
+      } else if (e.action !== 'list') throw new Error('Unsupported queue action');
+      const state = await readState($);
+      return { result: JSON.stringify({sessionId:state.sessionId,paused:state.paused,busy:state.busy,
+        running:state.running,pending:state.pending,config:state.config}) };
+    } catch (error) { return { result: JSON.stringify({error:String(error?.message ?? error)}), isError:true }; }
   });
 
   // Remove queued command arguments from the model-readable transcript.

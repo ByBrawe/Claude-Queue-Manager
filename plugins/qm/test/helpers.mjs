@@ -38,3 +38,4 @@ export async function host({ memory = new Map(), quota = 4*1024*1024, lockDir } 
   await emit('session.start');
   return{tools,cmd,emit,sent,notices,memory,state:()=>memory.get(`claude-queue-manager:queue:${id}`),switchId:x=>id=x,id:()=>id};
 }
+

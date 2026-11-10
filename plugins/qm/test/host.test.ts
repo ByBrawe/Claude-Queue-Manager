@@ -1,6 +1,22 @@
 import { expect, test, mock } from 'claude-code/testing'
 import { initialState, enqueue } from '../src/queue.mjs'
 
+test('official host registers Claude queue tool and protects the active turn',async($,on)=>{
+  mock.clock(on);mock.store(on)
+  let registered=''
+  on('session.id',()=>({value:'tool-native'}))
+  on('command.register',()=>({value:undefined}))
+  on('tool.register',($,e)=>{registered=e.name;return{value:undefined}})
+  on('session.start',()=>({cwd:'/work'}))
+  on('turn.start',($,e)=>({turnId:e.turnId}))
+  on('ui.log',()=>({value:undefined}))
+  await $.session.start({surface:'terminal',isInteractive:true,cwd:'/work'})
+  expect(registered).toBe('queue')
+  await $.turn.start({turnId:'planning',text:'Make a queue'})
+  const answer=await $.tool.call({tool:'mcp__qm__queue',action:'add',tasks:['Review','Test']})
+  expect(JSON.parse(answer.result as string).pending.length).toBe(2)
+})
+
 // These exercise Claude's real element constructors and hook dispatch, rather
 // than identity-function stand-ins for Input, Button, and Box.
 for (const surface of ['terminal', 'desktop'] as const) {
@@ -10,6 +26,7 @@ for (const surface of ['terminal', 'desktop'] as const) {
       const state = { ...enqueue(initialState('native'), ['A long task with Türkçe characters', 'Second task']), paused: true }
       mock.store(on, { 'claude-queue-manager:queue:native': state })
       on('session.id', () => ({ value: 'native' }))
+      on('session.usage', () => ({ value: {context:{tokens:64000,window:200000,percent:32}} }))
       on('ui.log', () => ({ value: undefined }))
       on('ui.toast', () => ({ value: undefined }))
       on('ui.close', () => ({ value: undefined }))
@@ -22,9 +39,10 @@ for (const surface of ['terminal', 'desktop'] as const) {
       expect(await pane.find({ key: 'qm-add-tasks' })).toBeDefined()
       // Inline captions previously squeezed the editor to a tiny column.
       expect((await pane.find({ key: 'qm-add-tasks' }))?.props.label).toBeUndefined()
-      expect(await pane.find({ key: 'qm-repeat-tasks' })).toBeUndefined()
+      expect(await pane.find({ key: 'qm-repeat-message' })).toBeUndefined()
       await pane.press({ key: 'qm-details' })
-      expect((await pane.find({ key: 'qm-repeat-tasks' }))?.props.label).toBeUndefined()
+      expect(await pane.find({ type:'Text',text:/32%/ })).toBeDefined()
+      expect((await pane.find({ key: 'qm-repeat-message' }))?.props.label).toBeUndefined()
       await pane.press({ key: 'qm-details' })
       expect(await pane.find({ key: 'qm-rm-2' })).toBeDefined()
       await pane.input({ key: 'qm-search', text: 'Second', kind: 'change' })
@@ -35,6 +53,8 @@ for (const surface of ['terminal', 'desktop'] as const) {
       const band = await $.ui.mount({ plugin: 'qm', component: 'AbovePrompt', requestId: 'band', surface,
         viewport: { columns, rows: 40 }, props: { bodyColumns: columns, hasSurvey: false } })
       expect(await band.find({ key: 'qm-close' })).toBeDefined()
+      expect(await band.find({ key: 'qm-search' })).toBeUndefined()
+      await band.press({key:'qm-details'})
       expect(await band.find({ key: 'qm-search' })).toBeDefined()
       await band.press({ key: 'qm-close' })
       expect(await band.find({ key: 'qm-add-tasks' })).toBeUndefined()

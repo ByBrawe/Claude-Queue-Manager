@@ -7,6 +7,19 @@ import { host, find, flush } from './helpers.mjs';
 import { initialState, enqueue, configure, claim, settleTurn, undo, normalizeState } from '../src/queue.mjs';
 import { acquireLock, releaseLock } from '../src/restore-lock.mjs';
 
+test('Claude queue tool builds and reorders pending work without steering the active turn',async()=>{
+ const h=await host();await h.emit('turn.start',{turnId:'user-planning'});
+ const call=args=>h.emit('tool.call',{tool:'mcp__qm__queue',...args},{tool:'mcp__qm__queue'});
+ let result=await call({action:'add',tasks:['Inspect code','Run tests','Write summary']});
+ assert.equal(JSON.parse(result.result).pending.length,3);await flush();assert.equal(h.sent.length,0);
+ result=await call({action:'reorder',ids:[2,1,3]});assert.deepEqual(JSON.parse(result.result).pending.map(x=>x.id),[2,1,3]);
+ result=await call({action:'remove',ids:[99]});assert.equal(result.isError,true);
+ assert.equal(h.state().pending.length,3);
+ await h.emit('turn.complete',{turnId:'user-planning',reason:'answer',answer:'Plan ready'});await flush();
+ assert.equal(h.sent.length,1);assert.equal(h.sent[0].text,'Run tests');
+ result=await call({action:'remove',ids:[2]});assert.equal(result.isError,true);
+});
+
 test('user pause survives success, terminal failure, timeout and retry',()=>{
  for(const outcome of ['success','failure','timeout'])for(const retries of [0,2]){
   let s=configure(enqueue(initialState('pause'),['A','B']),{onFail:'continue',retries});
@@ -26,7 +39,7 @@ test('undo cannot resurrect completed work after bounded history expires',()=>{
 test('stale delete and edit controls resolve stable IDs under the mutation lock',async()=>{
  const h=await host();await h.cmd('pause');await h.cmd('batch A || B || C');
  const pane=await h.emit('ui.render',{props:{},surface:'desktop'},{component:'Pane',requestId:'qm'});
- const removeB=find(pane,'qm-rm-2');await h.cmd('resume');await flush();await removeB.onPress();
+ const removeB=find(pane,'qm-rm-2');await h.cmd('resume');await flush();await removeB.onPress();assert.deepEqual(h.state().pending.map(x=>x.text),['B','C']);await removeB.onPress();
  assert.deepEqual(h.state().pending.map(x=>x.text),['C']);
  await find(pane,'qm-rm-1').onPress();assert.deepEqual(h.state().pending.map(x=>x.text),['C']);
 });
@@ -91,3 +104,4 @@ test('a user turn starting during AI verification prevents dispatch into that tu
  await h.emit('turn.complete',{turnId:'manual',reason:'answer',answer:'Done',durationMs:100});await flush();
  assert.equal(h.sent.length,2);
 });
+

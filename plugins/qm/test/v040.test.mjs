@@ -100,6 +100,8 @@ test('context usage reads real numbers and pauses at threshold only when enabled
   let s=enqueue(initialState('c'),['A']);
   s=recordContext(s,{context:{tokens:179000,window:200000}});
   assert.equal(s.paused,false);assert.equal(s.context.percent,89.5);
+  assert.equal(normalizeUsage({context:{tokens:null,window:200000}}),null);
+  assert.equal(normalizeUsage({context:{window:200000}}),null);
   s=configure(s,{contextPercent:85});s=recordContext(s,{context:{tokens:179000,window:200000}});
   assert.equal(s.paused,true);assert.match(s.pauseReason,/context:85/);
   assert.equal(normalizeUsage({context:{tokens:NaN,window:0}}),null);
@@ -194,3 +196,4 @@ test('mod: restore rejects active source and requires explicit acknowledgement o
   assert.match((await dst.cmd('restore old-running recover')).text,/transferred/);
   assert.equal(dst.getState().paused,true);assert.equal(dst.getState().pending[0].text,'A');
 });
+
