@@ -50,3 +50,8 @@ If the first task passes, the success branch runs and the failure branch is skip
 - Local Node tests run without a Claude binary; **run `claude plugin validate ./plugins/qm` and a two-task live test** in your Claude Code version before long batches.
 
 [English guide](README.md) · [Türkçe rehber](../tr/FEATURES-0.4.md) · [20-language index](../languages/README.md) · [Repository](https://github.com/ByBrawe/Claude-Queue-Manager)
+
+### Claude Desktop: `/qm` is not recognized (v0.4.1)
+
+Some Desktop releases do not recognize slash commands registered by mods ([Anthropic #99691](https://github.com/anthropics/claude-code/issues/99691)). QM v0.4.1 registers `/qm` before any queue I/O, surfaces startup errors, and draws a persistent **QM** button above the prompt even with an empty queue. That button opens the native panel without a model turn. If neither command nor button is available, the mod may not have loaded or the host may not render the surface. Use a new local **Code** session, not regular Chat; confirm the plugin is enabled and reload it.
+

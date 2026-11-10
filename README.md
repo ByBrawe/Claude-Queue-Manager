@@ -33,6 +33,14 @@ claude plugin install qm@claude-queue-manager
 
 3. Restart the local Claude Desktop **Code** session. The archive contains the marketplace manifest and plugin sources, not a standalone app. No API key or npm install is needed.
 
+## Desktop slash-command workaround (v0.4.1)
+
+Claude Desktop has a [known issue with commands dynamically registered by mods](https://github.com/anthropics/claude-code/issues/99691): `/qm` may show **"isn't a command here"** even when the plugin is installed. **QM v0.4.1 registers `/qm` at the very start of `session.start`**, exposes registration failures via a visible toast and log, and **always renders a small `QM` button above the Code prompt**, including when the queue is empty. Click this button to open the real queue panel **without asking Claude/the model**. The button requires the mod to load and the host to render the `AbovePrompt` surface; it cannot fix a mod that the Desktop app never loaded.
+
+**Quick check:** In a new **local Code** session, look just above the composer for the `QM` button. If visible, click it. If the button appears but `/qm` still warns, that is probably Desktop's command-discovery bug, not a missing queue. If **neither** appears, check that the plugin is enabled and run `claude plugin test` / `claude plugin validate ./plugins/qm` in a compatible Claude Code CLI. Try a new session or `/reload-plugins` after updating. Normal Chat tabs and remote sessions are not supported. There is no way for QM to force the Desktop composer to recognize a dynamic slash command.
+
+Source comparisons: [After](https://github.com/midudev/better-claude/blob/main/plugins/after/hooks/register.tsx) and [Porthole](https://github.com/modmyclaude/claude-code-mods/blob/main/mods/porthole/hooks/register.tsx) register commands immediately, while [Kit](https://github.com/effectustasi/kit/blob/main/hooks/register.tsx) offers a persistent above-prompt surface. Static markdown skills with the same name do **not** route to a mod's `command.run` hook, as reported in the linked Desktop issue.
+
 ## Reliability & automation (v0.4.0)
 
 **New:** optional completion verification, bounded retries and soft timeouts, live context guard, conditional tasks, explicit session recovery, and local outcome analytics. **Existing /qm UI/TUI and drag-and-drop /qm web are preserved.** Default settings leave the old simple FIFO behavior unchanged.

@@ -42,3 +42,8 @@ QM, Claude Desktop'ın **yerel Code sekmesinde** veya Claude Code terminalinde �
 **Uyarı:** `QM_PASS` Claude'un kendi beyanıdır; testlerin gerçekten geçtiğinin teknik kanıtı değildir. AI doğrulaması ek maliyet çıkarır. Timeout çalışan işi iptal etmez. Retry veya kurtarma aynı işi iki kez yaptırabilir. Eski `/qm` ve `/qm web` özellikleri korunur. Uzun kuyruklardan önce `claude plugin validate ./plugins/qm` komutunu ve iki kısa görevlik gerçek Desktop testini yap.
 
 [Türkçe rehber](README.md) · [English guide](../en/FEATURES-0.4.md) · [20 dil](../languages/README.md) · [GitHub](https://github.com/ByBrawe/Claude-Queue-Manager)
+
+### Claude Desktop: `/qm` komutu görünmüyorsa (v0.4.1)
+
+Claude Desktop sürümlerinde modların dinamik slash komutları tanınmayabiliyor ([Anthropic #99691](https://github.com/anthropics/claude-code/issues/99691)). QM v0.4.1, `/qm` komutunu oturumun ilk adımı olarak kaydeder, yükleme hatasını görünür gösterir ve kuyruk boşken bile yazma alanının üstünde **QM** düğmesi sunar. Bu düğme, modelden yanıt istemeden gerçek QM panelini açar. Düğme de yoksa mod oturuma yüklenmemiş ya da Desktop bu arayüzü göstermiyor olabilir. Normal **Chat** sekmesi değil, yerel **Code** oturumu kullan; eklentiyi etkinleştirip yeni oturum aç. Eklentiyi güncelledikten sonra `/reload-plugins` veya uygulamayı yeniden açmayı deneyebilirsin.
+

@@ -32,6 +32,27 @@ let webTimer = null;
 let retryTimer = null;
 let verificationRunning = false;
 const PREFS_KEY = 'claude-queue-manager:prefs:locale';
+// Desktop may show an outdated slash-command list until a live session starts.
+// A native button is always rendered as a second, model-free entry point.
+let startupWarning = null;
+
+function reportStartupIssue($, stage, error) {
+  const reason = String(error?.message ?? error);
+  const message = `QM startup (${stage}): ${reason}`;
+  startupWarning = message;
+  // Use a visible log and a toast; debug-only logs hid registration failures.
+  try { $.ui.log(message); } catch {}
+  try { $.ui.toast(message, { timeoutMs: 10000 }); } catch {}
+}
+
+async function openManager($) {
+  try {
+    const outcome = await $.ui.open({ id: PANE_ID, title: 'Queue Manager', focus: true, closeOnEscape: true });
+    if (outcome?.isPlaced === false) {
+      reportStartupIssue($, 'panel', outcome.reason ?? 'the host could not place the panel');
+    }
+  } catch (error) { reportStartupIssue($, 'panel', error); }
+}
 
 function exclusive(work) {
   const next = chain.then(work, work);
@@ -302,7 +323,7 @@ async function restoreSession($, sessionId, acknowledgeRunning) {
 async function perform($, text) {
   const intent = parseCommand(text);
   if (intent.type === 'open' || intent.type === 'list') {
-    await $.ui.open({ id: PANE_ID, title: 'Queue Manager', focus: true, closeOnEscape: true });
+    await openManager($);
     return '';
   }
   if (intent.type === 'help') return HELP;
@@ -379,16 +400,32 @@ async function act($, command) {
 }
 
 async function drawBand($, e, next) {
-  if (e.props.hasSurvey) return next(e);
-  const state = await load($);
-  if (!state.pending.length && !state.running) return next(e);
-  const t = uiStrings(language);
+  if (e.props?.hasSurvey) return next(e);
+  // The button exists even when no tasks are queued. It bypasses the Desktop
+  // composer's dynamic /qm validation issue (#99691) without a model call.
   const { Box, Text, Button } = $.ui.resolve(e);
+  const openButton = button(Button, 'qm-open', 'QM', () => openManager($), { plain: true });
+  let state;
+  try { state = await load($); }
+  catch (error) {
+    // A corrupt store must not make the only fallback entry point disappear.
+    return Box({ flexDirection: 'row', columnGap: 2, children: [
+      node(Text, 'QM !', { color: 'yellow', bold: true }),
+      openButton
+    ] });
+  }
+  if (!state.pending.length && !state.running) {
+    return Box({ flexDirection: 'row', columnGap: 1, children: [
+      node(Text, startupWarning ? 'QM !' : 'QM', { color: startupWarning ? 'yellow' : undefined, dimColor: !startupWarning }),
+      openButton
+    ] });
+  }
+  const t = uiStrings(language);
   const nextName = state.pending.length ? shortened(state.pending[0].text, 45) : (state.running ? t.running : t.ready);
   return Box({ flexDirection: 'row', columnGap: 2, children: [
     node(Text, ` QM ${status(state, t)} `, { color: state.paused ? 'yellow' : 'cyan', bold: true }),
     node(Text, `${state.pending.length} ${t.pending} | ${nextName}`, { wrap: 'truncate-end', dimColor: true }),
-    button(Button, 'qm-open', 'QM', () => $.ui.open({ id: PANE_ID, title: 'Queue Manager', focus: true, closeOnEscape: true }), { plain: true })
+    openButton
   ] });
 }
 
@@ -569,21 +606,31 @@ async function drawPane($, e) {
 
 export function register(on) {
   on('session.start', async ($, e, next) => {
-    const incomingSession = await $.session.id();
-    if (cachedSessionId !== incomingSession) {
-      page = 0; searchText = ''; bulkDraft = ''; repeatDraft = '';
-      editDraft = ''; editId = null; clearArmed = false;
-      groupRemoveArmed = false; selectedIds.clear();
-      web = null; webTimer = null; webRevision = 0; webAck = null; webHandledId = 0;
-      cancelRetryTimer(); verificationRunning = false;
-    }
-    const resumed = await load($);
-    if (resumed.recoverable) $.ui.toast('QM: previous in-flight task needs review. /qm recover (may repeat work).');
-    try { language = (await $.store.get(PREFS_KEY)) === 'tr' ? 'tr' : 'en'; } catch {}
+    // Register immediately, before any queue/session/store I/O. Other mods
+    // (After, Porthole, Show Me) register first for the same reason.
+    startupWarning = null;
     try {
       await $.command.register({ name: 'qm', description: 'Queue Manager: run tasks one by one without steering',
         argumentHint: 'add | batch | repeat | verify | retry | timeout | context | if | history', immediate: true });
-    } catch (error) { logError($, error); }
+    } catch (error) {
+      // Command registration failure must not silently prevent button access.
+      reportStartupIssue($, 'command /qm', error);
+    }
+    try {
+      const incomingSession = await $.session.id();
+      if (cachedSessionId !== incomingSession) {
+        page = 0; searchText = ''; bulkDraft = ''; repeatDraft = '';
+        editDraft = ''; editId = null; clearArmed = false;
+        groupRemoveArmed = false; selectedIds.clear();
+        web = null; webTimer = null; webRevision = 0; webAck = null; webHandledId = 0;
+        cancelRetryTimer(); verificationRunning = false;
+      }
+      const resumed = await load($);
+      if (resumed.recoverable) $.ui.toast('QM: previous in-flight task needs review. /qm recover (may repeat work).');
+      try { language = (await $.store.get(PREFS_KEY)) === 'tr' ? 'tr' : 'en'; }
+      catch (error) { logError($, error); }
+    } catch (error) { reportStartupIssue($, 'session state', error); }
+    try { $.ui.invalidate('ui.render'); } catch {}
     return next(e);
   });
 

@@ -11,3 +11,7 @@ Open `/qm web` for a real synchronized browser UI, not a static mockup. Use **dr
 - Changes apply to pending queue entries only. Concurrent stale changes are rejected.
 - Stop with `/qm web stop` or close the Code session. Orphaned dashboards stop after 5 minutes without Mod contact.
 - Test in Claude Desktop: native Mods UI / browser launch require host API compatibility. Unit/integration tests are not a substitute for this.
+
+## v0.4.1: persistent open control
+
+Even when the queue is empty, the mod shows a compact **QM** control above the local Code/CLI composer. Click to open the native pane. The button provides an alternative if Desktop displays the known `'/qm isn't a command here'` warning. It requires a successfully loaded mod and an `AbovePrompt` UI surface.

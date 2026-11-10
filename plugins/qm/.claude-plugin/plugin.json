@@ -1,6 +1,6 @@
 {
   "name": "qm",
-  "version": "0.4.0",
+  "version": "0.4.1",
   "description": "QM 0.4: one-turn queue, optional AI verification, retry/timeout, context guard, conditionals, recovery, UI/TUI and web dashboard",
   "author": {
     "name": "ByBrawe",

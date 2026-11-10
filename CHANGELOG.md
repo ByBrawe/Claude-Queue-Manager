@@ -1,3 +1,11 @@
+## 0.4.1 — Desktop command discovery workaround
+
+- Register `/qm` before reading session identity, queue store, or preferences.
+- Surface registration/session initialization errors to the user via toast and normal log.
+- Show a permanent, small `QM` button above the composer, even when the queue is empty.
+- Use the same `openManager()` path for button and `/qm` command and report panel placement failure.
+- Document the upstream Desktop composer bug and limitations; keep all v0.4.0 functionality.
+
 # Changelog
 
 ## 0.4.0
