@@ -1,3 +1,4 @@
+import { LANGUAGES, EXTRA_MESSAGES, canonicalLocale } from '/locales.mjs';
 // Browser-only UI; the authoritative queue lives in the Claude Code mod.
 // A localhost dashboard queues operations for the mod to validate and commit.
 const $ = id => document.getElementById(id);
@@ -10,7 +11,7 @@ let pendingActionId = null;
 let pendingDraft = null;
 let searchTerm = '';
 let dragging = null;
-let locale = 'en';
+let locale = 'tr';
 let toastTimer;
 let online=false;
 let modalSelection=[];
@@ -63,6 +64,17 @@ const labels = {
 };
 Object.assign(labels.en,{headline:'Your task queue',subtitle:'One session. One task at a time.',empty:'Your queue is empty. Add a task to get started.',repeatTitle:'Repeat a message',count:'Count',message:'Message',repeatAdd:'Add repetitions',current:'Current task',pauseHelp:'Pause waits for the current turn to finish; pending tasks stay queued.',starts:'Adding tasks starts the first one immediately when Claude is idle.',held:'Tasks stay pending until you resume.',retryConnection:'Connection lost. Reconnecting automatically… Your draft is kept.',stopped:'Claude session is not responding. Reopen /qm web in that session.',missingContext:'Host has not reported usage yet. Readings become available after a model response.',session:'Session',up:'Move up',down:'Move down',selectTask:'Select task',historyTitle:'History and analytics'});
 Object.assign(labels.tr,{headline:'Görev kuyruğun',subtitle:'Tek oturum. Her seferinde bir görev.',empty:'Kuyruk boş. Başlamak için bir görev ekle.',repeatTitle:'Mesajı tekrarla',count:'Adet',message:'Mesaj',repeatAdd:'Tekrarları ekle',current:'Çalışan görev',pauseHelp:'Duraklat, çalışan turun bitmesini bekler; bekleyen görevleri başlatmaz.',starts:'Claude boştaysa eklediğin ilk görev hemen başlar.',held:'Görevler devam ettirene kadar bekler.',retryConnection:'Bağlantı kesildi. Otomatik yeniden bağlanılıyor… Taslağın korundu.',stopped:'Claude oturumu yanıt vermiyor. O oturumda /qm web komutunu yeniden aç.',missingContext:'Host henüz kullanım verisi bildirmedi. Model yanıtından sonra veri alınabilir.',session:'Oturum',up:'Yukarı taşı',down:'Aşağı taşı',selectTask:'Görevi seç',historyTitle:'Geçmiş ve istatistikler'});
+for(const [code,m] of Object.entries(EXTRA_MESSAGES))labels[code]={
+ analyticsSection:m.analytics,analyticsTitle:m.analytics,contextName:m.contextLabel,unavailable:m.unavailable,passed:m.done,failedCount:m.failure,retried:m.retryLabel,skipped:m.skipped,
+ headline:m.title,subtitle:m.oneAtTime,pending:m.pending,active:m.active,done:m.done,mode:m.title,tasks:m.pending,
+ ready:m.ready,paused:m.paused,working:m.working,running:m.running,pause:m.pause,resume:m.resume,search:m.search,selectAll:m.selectAll,selected:m.selected,deselect:m.deselectAll,
+ drag:'⠿ · '+m.moveTop+' / '+m.moveBottom,filtered:m.search+' → '+m.deselectAll,top:m.moveTop,bottom:m.moveBottom,remove:m.remove,empty:m.empty,noMatch:m.noMatch,
+ waiting:m.working,connected:m.connected,disconnected:m.disconnected,taskList:m.pending,countHint:m.pending,queueHint:m.selected+' · ⠿',
+ activeSection:m.active,activeEmpty:m.noActive,activeDesc:m.pauseHint,addSection:m.addButton,addTitle:m.addButton,addDesc:m.addHint,add:m.addButton,limit:'200 / 500 · '+m.pending,
+ privacySection:m.openWeb,privacy:'127.0.0.1 · '+m.openWeb,confirm:m.confirm+'?',confirmText:m.clearWarn,cancel:m.cancel,delete:m.remove,invalid:m.invalidRepeat,
+ applied:m.save,failed:m.unavailable,stale:m.working,busy:m.working,auth:m.unavailable+' · /qm web',noDragFilter:m.search+' → '+m.deselectAll,
+ repeatTitle:m.repeatButton,count:m.count,message:m.repeatMessage,repeatAdd:m.repeatButton,current:m.active,pauseHelp:m.pauseHint,starts:m.addStarts,held:m.addPaused,
+ retryConnection:m.unavailable+' · '+m.retryLabel,stopped:m.sessionsLabel+' · '+m.unavailable+' · /qm web',missingContext:m.contextMissing,session:m.sessionsLabel,up:m.moveTop,down:m.moveBottom,selectTask:m.select,historyTitle:m.historyLabel+' / '+m.analytics};
 const t = () => labels[locale];
 function toast(message, bad = false) {
   const el = $('toast'); el.textContent = message;
@@ -106,10 +118,10 @@ function translated() {
   $('confirm-delete').textContent = m.delete; $('queue-hint').textContent = m.queueHint;
   $('repeat-title').textContent=m.repeatTitle; $('repeat-count-label').textContent=m.count; $('repeat-message-label').textContent=m.message; $('repeat-add').textContent=m.repeatAdd;
   $('current-title').textContent=m.current; $('pause-help').textContent=m.pauseHelp; $('tasks-label').textContent=m.addSection;
-  $('analytics-title').textContent=m.historyTitle; $('tasks-input').placeholder=locale==='tr'?'Testleri çalıştır\nHataları düzelt':'Run tests\nFix failures';
-  $('repeat-message').placeholder=locale==='tr'?'Devam et':'Continue'; $('locale').setAttribute('aria-label',locale==='tr'?'Dil':'Language');
+  $('analytics-title').textContent=m.historyTitle; $('tasks-input').placeholder=EXTRA_MESSAGES[locale]?.addHint || (locale==='tr'?'Testleri çalıştır\nHataları düzelt':'Run tests\nFix failures');
+  $('repeat-message').placeholder=EXTRA_MESSAGES[locale]?.repeatMessage || (locale==='tr'?'Devam et':'Continue'); $('locale').setAttribute('aria-label',EXTRA_MESSAGES[locale]?.language || (locale==='tr'?'Dil':'Language')); 
   $('search').setAttribute('aria-label',m.search);
-  document.documentElement.lang = locale;
+  document.documentElement.lang = locale; document.documentElement.dir=['ar','fa'].includes(locale)?'rtl':'ltr';
 }
 function el(tag, classes, text) {
   const e = document.createElement(tag);
@@ -141,7 +153,7 @@ function render() {
   $('stats-panel').textContent = counts ? `${counts.success} ${m.passed} • ${(counts.failure||0)+(counts.timeout||0)} ${m.failedCount} • ${counts.retried||0} ${m.retried} • ${counts.skipped||0} ${m.skipped}` : '—';
   const history = $('history-panel'); history.replaceChildren();
   for (const item of (s?.history || []).slice(0, 5)) {
-    history.append(el('p', `muted tiny outcome-${item.status}`,  `${({success:m.passed,failure:m.failedCount,timeout:locale==='tr'?'zaman aşımı':'timeout',unknown:m.unavailable,skipped:m.skipped})[item.status] || item.status || m.passed} · ${Math.round((item.durationMs || 0)/1000)}s · ${item.text.slice(0, 75)}`));
+    history.append(el('p', `muted tiny outcome-${item.status}`,  `${({success:m.passed,failure:m.failedCount,timeout:EXTRA_MESSAGES[locale]?.timeoutLabel || (locale==='tr'?'zaman aşımı':'timeout'),unknown:m.unavailable,skipped:m.skipped})[item.status] || item.status || m.passed} · ${Math.round((item.durationMs || 0)/1000)}s · ${item.text.slice(0, 75)}`));
   }
 
   $('drag-tip').textContent = searchTerm ? m.filtered : m.drag;
@@ -284,10 +296,11 @@ $('confirm-delete').onclick=()=>{dismissDelete();void action({type:'remove',ids:
 $('overlay').onclick=e=>{if(e.target===$('overlay'))dismissDelete();};
 $('search').oninput=e=>{searchTerm=String(e.target.value).toLocaleLowerCase().trim();render();};
 $('add-tasks').onclick=addTasks;
-$('locale').onchange=e=>{locale=e.target.value==='tr'?'tr':'en';try{localStorage.setItem('qm-locale',locale);}catch{}translated();render();markConnected(online);};
+$('locale').onchange=e=>{locale=canonicalLocale(e.target.value)||'tr';try{localStorage.setItem('qm-locale',locale);}catch{}translated();render();markConnected(online);};
 $('repeat-add').onclick=async()=>{const count=Number($('repeat-count').value),message=$('repeat-message').value.trim();if(!Number.isInteger(count)||count<1||count>200||!message||message.length>20000){toast(t().invalid,true);return;}if(await action({type:'add',texts:Array(count).fill(message)}))repeatDraftPending={message};};
 document.addEventListener?.('keydown',e=>{if($('overlay').classList.contains('hidden'))return;if(e.key==='Escape')dismissDelete();if(e.key==='Tab'){e.preventDefault();(document.activeElement===$('cancel-confirm')?$('confirm-delete'):$('cancel-confirm')).focus();}});
-try{locale=localStorage.getItem('qm-locale')==='tr'?'tr':'en';}catch{} $('locale').value=locale;
+$('locale').replaceChildren(...LANGUAGES.map(x=>{const option=document.createElement('option');option.value=x.value;option.textContent=x.label;return option;}));
+try{locale=canonicalLocale(localStorage.getItem('qm-locale'))||'tr';}catch{} $('locale').value=locale;
 if (!token) toast('Open the private URL from /qm web (missing token).',true);
 translated();
 void refresh();

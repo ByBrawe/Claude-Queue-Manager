@@ -1,3 +1,4 @@
+import { canonicalLocale } from './locales.mjs';
 import { MAX_BATCH } from './queue.mjs';
 
 const num = text => /^\d+$/.test(text) ? Number(text) : NaN;
@@ -38,8 +39,12 @@ export function parseCommand(raw = '') {
     if (!/^[a-zA-Z0-9._:-]{1,150}$/.test(restore[1])) throw new Error('Invalid session ID');
     return { type: 'restore', sessionId: restore[1], recover: Boolean(restore[2]) };
   }
-  const lang = /^lang(?:uage)?\s+(en|tr)$/i.exec(args);
-  if (lang) return { type: 'lang', code: lang[1].toLowerCase() };
+  const lang = /^lang(?:uage)?\s+(\S+)$/i.exec(args);
+  if (lang) {
+    const code = canonicalLocale(lang[1]);
+    if (!code) throw new Error('Unsupported language; /qm lang <code>');
+    return { type: 'lang', code };
+  }
   if (/^next$/i.test(args)) return { type: 'next' };
   const verify = /^verify\s+(off|marker|ai)(?:\s+([\w.-]+))?$/i.exec(args);
   if (verify) {

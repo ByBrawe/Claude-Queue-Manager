@@ -1,3 +1,9 @@
+## 0.6.0 — 20 interface languages / 20 arayüz dili
+
+The 20 documentation languages are now available in the native panel, CLI language command and web dashboard: en, tr, de, fr, es, it, pt-BR, ru, uk, pl, nl, sv, ja, ko, zh-CN, ar, hi, id, vi, fa. Use the header selector or `/qm lang de`, `/qm lang pt-BR`, `/qm lang zh-CN`. Native preferences survive a restart; browser preferences are saved per dashboard origin. Web Arabic and Persian use right-to-left layout. Command names, task content and host-provided diagnostic text are not translated.
+
+README’deki 20 dil artık gerçek arayüz seçeneğidir. Üstteki dil seçicisini veya `/qm lang <kod>` komutunu kullan. Ek diller kısa, yerelleştirilmiş arayüz metinleri kullanır; İngilizceye sessizce dönmez. Önceki 0.5.1 dil görünürlüğü düzeltmesi bu sürüme dahildir.
+
 ## 0.5.0 — Native, CLI and web workspace
 
 The queue engine and gateway configuration are preserved. The native manager now adapts to the available width, separates repeat count/message, confirms individual deletion, and provides keyboard focus and p/q shortcuts. The inline view stays compact; Details expands pending operations and advanced telemetry. Task fields use supported Box/Input components at full width.

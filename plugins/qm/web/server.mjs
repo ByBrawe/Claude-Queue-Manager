@@ -54,9 +54,9 @@ export function createDashboard({ token = randomBytes(32).toString('hex'), port 
       return send(res, 403, { error: 'Invalid host' });
     }
     const url = new URL(req.url, `http://127.0.0.1:${actualPort}`);
-    const allowed = ['/', '/app.js', '/style.css'];
+    const allowed = ['/', '/app.js', '/style.css', '/locales.mjs'];
     if (req.method === 'GET' && allowed.includes(url.pathname)) {
-      const kind = url.pathname === '/' ? 'index.html' : url.pathname.slice(1);
+      const kind = url.pathname === '/' ? 'index.html' : url.pathname === '/locales.mjs' ? '../src/locales.mjs' : url.pathname.slice(1);
       const type = kind.endsWith('.html') ? 'text/html' : kind.endsWith('.css') ? 'text/css' : 'text/javascript';
       try {
         const data = await readFile(join(here, kind));

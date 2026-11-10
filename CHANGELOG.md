@@ -1,3 +1,17 @@
+## 0.6.0 — Shared 20-language UI catalog
+
+- Connect all 20 documented languages to native/CLI/web selectors and canonical language codes.
+- Share translated control/state text between native and browser views; preserve native locale preferences.
+- Localize CLI help labels and add Arabic/Persian RTL web layouts.
+- Add completeness, persistence and browser selection/layout checks for all 20 locales.
+- Include the unreleased 0.5.1 language-control improvements.
+
+## 0.5.1 — Visible language controls
+
+- Default first-time native/CLI/web UI to Turkish; preserve explicitly saved English preferences.
+- Show language selection at the top of native side and compact inline views, rather than hiding it in Details.
+- Translate native pause reasons, including interruption and recovery states.
+
 ## 0.5.0 — Consistent native / CLI / web UX
 
 - Responsive native form layout, compact inline view, full-width input wrappers, separate repeat fields, keyboard actions and per-row delete confirmation.

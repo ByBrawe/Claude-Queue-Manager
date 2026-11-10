@@ -1,3 +1,4 @@
+import { LANGUAGES } from '../plugins/qm/src/locales.mjs';
 // Optional visual QA. Install Playwright outside the plugin, then set
 // QM_PLAYWRIGHT_MODULE to its index.mjs file URL if it is not on the module path.
 import assert from 'node:assert/strict';
@@ -42,6 +43,7 @@ try{
   await page.screenshot({path:`${out}/web-${width}-${count}-${locale}.png`,fullPage:true});
   checks.push({width,count,locale,overflow:false});
  }
+ for(const lang of LANGUAGES){await seed(3);await page.setViewportSize({width:900,height:1000});await page.goto(base+'/#token='+token);await page.selectOption('#locale',lang.value);await page.waitForFunction(code=>document.documentElement.lang===code,lang.value);assert.equal(await page.locator('#locale option').count(),20);assert.equal(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth),true);assert.equal(await page.locator('#add-tasks').innerText().then(x=>x.length>0),true);await page.screenshot({path:`${out}/language-${lang.value}.png`,fullPage:true});}
  await seed(3);await page.setViewportSize({width:1440,height:1000});await page.goto(base+'/#token='+token);await page.waitForFunction(()=>document.querySelectorAll('.row-task').length===3);
  const order=()=>state.pending.map(x=>x.id);
  await page.locator('.task-check').nth(0).check();await page.locator('.task-check').nth(1).check();await page.click('#move-bottom');

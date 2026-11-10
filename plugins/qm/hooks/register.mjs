@@ -1,3 +1,4 @@
+import { canonicalLocale } from '../src/locales.mjs';
 // Queue Manager is a self-contained Claude Code mod.
 // It never injects queued text into the current turn. Each item is submitted
 // as a new user turn after a successful main turn.complete event.
@@ -16,7 +17,7 @@ let cached = null;
 let cachedSessionId = null;
 let chain = Promise.resolve();
 let page = 0;
-let language = 'en';
+let language = 'tr';
 let searchText = '';
 let bulkDraft = '';
 let repeatDraft = '';
@@ -399,7 +400,7 @@ async function perform($, text) {
     try { await $.ui.close({ id: PANE_ID }); } catch {}
     return '';
   }
-  if (intent.type === 'help') return language === 'tr' ? HELP_TR : HELP;
+  if (intent.type === 'help') { if(language==='tr')return HELP_TR; if(language==='en')return HELP; const t=uiStrings(language); return [['/qm',t.title],['/qm add / batch',t.addButton],['/qm repeat',t.repeatButton],['/qm pause',t.pause],['/qm resume',t.resume],['/qm edit / rm / mv',t.edit+' / '+t.remove+' / '+t.moveTop],['/qm clear / undo',t.clear+' / '+t.undo],['/qm verify / retry / timeout',t.verifyLabel+' / '+t.retryLabel+' / '+t.timeoutLabel],['/qm context',t.contextLabel],['/qm if success|failure',t.verifyLabel],['/qm history / stats',t.historyLabel+' / '+t.analytics],['/qm sessions / recover / restore',t.sessionsLabel],['/qm web',t.openWeb],['/qm lang',t.language]].map(x=>x.join(' — ')).join('\n'); }
   if (intent.type === 'web') return startWeb($);
   if (intent.type === 'web-stop') { await stopWeb($); return 'QM: web dashboard stopped'; }
   if (intent.type === 'sessions') return listSessions($);
@@ -476,7 +477,7 @@ async function drawBand($, e, next) {
   if (e.props?.hasSurvey) return next(e);
   if (managerOpen) return drawPane($, e);
   const { Box, Text, Button } = $.ui.resolve(e);
-  const openButton = button(Button, 'qm-open', language === 'tr' ? 'Kuyruğu aç' : 'Open queue', () => openManager($), { plain: true });
+  const openButton = button(Button, 'qm-open', uiStrings(language).openWeb, () => openManager($), { plain: true });
   let state;
   try { state = await readState($); }
   catch (error) {
@@ -541,13 +542,13 @@ async function drawPane($, e) {
   catch (error) {
     const { Box, Text, Button } = $.ui.resolve(e);
     return block(Box, [node(Text, `Queue Manager: ${String(error?.message ?? error)}`, { color: 'yellow' }),
-      button(Button, 'qm-close', language === 'tr' ? 'Kapat' : 'Close', () => act($, 'close'))]);
+      button(Button, 'qm-close', uiStrings(language).close, () => act($, 'close'))]);
   }
 }
 
 // The composer has its own compact view, rather than a squeezed side pane.
 async function drawInline($, e) {
-  const {Box,Text,Button,Input}= $.ui.resolve(e);
+  const {Box,Text,Button,Input,Select}= $.ui.resolve(e);
   const t=uiStrings(language), state=await readState($);
   async function add(value) {
     const items=splitPaste(value);if(!items.length)return;
@@ -556,13 +557,14 @@ async function drawInline($, e) {
   }
   return block(Box,[
     node(Text,`Queue Manager · ${status(state,t)} · ${state.pending.length} ${t.pending}`,{bold:true,color:state.paused?'yellow':'cyan'}),
+    ...(Select ? [Select({key:'qm-language',label:t.language,options:SUPPORTED_UI_LANGUAGES,value:language,onSelect:v=>act($,`lang ${v}`)})] : []),
     Box({width:'100%',flexDirection:'column',children:[Input({key:'qm-add-tasks',rows:2,value:bulkDraft,placeholder:t.addHint,autoFocus:true,onInput:v=>bulkDraft=v,onSubmit:add})]}),
     node(Text,state.paused?t.addPaused:t.addStarts,{dimColor:true}),
     Box({flexDirection:'row',flexWrap:'wrap',columnGap:1,children:[
       button(Button,'qm-add-action',t.addButton,()=>add(bulkDraft),{variant:'primary'}),
       button(Button,'qm-toggle',state.paused?t.resume:t.pause,()=>act($,state.paused?'resume':'pause'),{hotkey:'p'}),
-      button(Button,'qm-details',language==='tr'?'Genişlet':'Expand',()=>{detailsOpen=true;redraw($);},{plain:true}),
-      button(Button,'qm-side',language==='tr'?'Yan panel':'Side panel',()=>act($,'side'),{plain:true}),
+      button(Button,'qm-details',t.expand || t.details || t.analytics,()=>{detailsOpen=true;redraw($);},{plain:true}),
+      button(Button,'qm-side',t.side || t.openWeb,()=>act($,'side'),{plain:true}),
       button(Button,'qm-close',t.close,()=>act($,'close'),{plain:true,hotkey:'q',role:'dismiss'})
     ]})
   ],{rowGap:0});
@@ -587,9 +589,12 @@ async function buildPane($, e) {
   });
   const stats = node(Text, `${state.pending.length} ${t.pending} · ${state.running ? 1 : 0} ${t.active} · ${state.stats.success} ${t.done}`, { dimColor: true });
   const contextLine = node(Text, `${t.contextLabel}: ${context ? `${context.percent}% (${context.tokens}/${context.window})` : t.contextMissing} · ${t.verifyLabel}: ${state.config.verify} · ${t.retryLabel}: ${state.config.retries} · ${t.timeoutLabel}: ${state.config.timeoutMs ? `${Math.round(state.config.timeoutMs/1000)}s` : t.off}`, { dimColor: true });
-  const pauseInfo = state.pauseReason ? node(Text, `${t.pauseReason}: ${state.pauseReason}`, { color: 'yellow' }) : null;
+  const pauseNames = language === 'tr' ? {user:'kullanıcı duraklattı',interrupted:'tur kesildi',failure:'başarısız görev',timeout:'süre sınırı',unknown:'sonuç bilinmiyor','verify-unknown':'doğrulama belirsiz','session-cleared':'yeni oturumda inceleme bekliyor','submit-rejected':'görev gönderimi reddedildi',recovery:'kurtarma gerekiyor','recovered-needs-review':'kurtarıldı; inceleme bekliyor','restored-needs-review':'taşındı; inceleme bekliyor','manual-retry':'elle yeniden deneme'} : {};
+  const genericReason = language!=='en' && language!=='tr' ? ({timeout:t.timeoutLabel,failure:t.failure,'verify-unknown':t.verifyLabel,recovery:t.recover,'session-cleared':t.sessionsLabel,interrupted:t.pause,user:t.pause}[state.pauseReason] || t.paused) : null;
+  const reason = genericReason ?? pauseNames[state.pauseReason] ?? (language === 'tr' && state.pauseReason?.startsWith('context:') ? `bağlam eşiği %${state.pauseReason.split(':')[1]}` : state.pauseReason);
+  const pauseInfo = state.pauseReason ? node(Text, `${t.pauseReason}: ${reason}`, { color: 'yellow' }) : null;
   const recentOutcomes = state.history.slice(0, 4).map(item => node(Text,
-    `#${item.id} ${item.status || 'success'} · ${Math.round((item.durationMs || 0)/1000)}s · ${shortened(item.text, 65)}`,
+    `#${item.id} ${({success:t.done,failure:t.failure||t.unavailable,timeout:t.timeoutLabel,unknown:t.unavailable,skipped:t.skipped||t.off})[item.status] || t.done} · ${Math.round((item.durationMs || 0)/1000)}s · ${shortened(item.text, 65)}`,
     { dimColor: true }));
   const advancedActions = Box({ flexDirection: 'row', flexWrap: 'wrap', columnGap: 1, children: [
     button(Button, 'qm-stats', t.analytics, () => act($, 'stats')),
@@ -633,14 +638,14 @@ async function buildPane($, e) {
     } catch { $.ui.toast(t.invalidRepeat); }
   }
   const pasteInput = Input
-    ? block(Box, [node(Text, language === 'tr' ? 'Görevler' : 'Tasks', { bold: true }),
+    ? block(Box, [node(Text, t.tasks || t.pending, { bold: true }),
       Box({ width: '100%', flexDirection: 'column', children: [Input({ key: 'qm-add-tasks', rows: inline ? 2 : 4, value: bulkDraft, autoFocus: true,
       placeholder: t.addHint, onInput: value => { bulkDraft = String(value ?? ''); },
       onSubmit: queuePasted })] }), node(Text, state.paused ? t.addPaused : t.addStarts, { dimColor: true })], { rowGap: 0 })
     : node(Text, '/qm batch task 1 || task 2');
 
   const repeatInput = Input
-    ? block(Box, [node(Text, language === 'tr' ? 'Tekrar (5 | devam et)' : 'Repeat (5 | continue)', { bold: true }),
+    ? block(Box, [node(Text, t.repeatButton, { bold: true }),
       Input({ key: 'qm-repeat-tasks', value: repeatDraft,
       placeholder: t.repeatHint, onInput: value => { repeatDraft = String(value ?? ''); },
       onSubmit: queueRepeated })], { rowGap: 0 })
@@ -722,9 +727,9 @@ async function buildPane($, e) {
     : null;
 
   return block(Box, [
-    Box({ flexDirection: 'row', flexWrap: 'wrap', columnGap: 2, children: [title,
+    Box({ flexDirection: 'row', flexWrap: 'wrap', columnGap: 2, children: [title, langControl,
       button(Button, 'qm-close', t.close, () => act($, 'close'), { plain: true, hotkey: 'q', role: 'dismiss' }),
-      button(Button, 'qm-side', language === 'tr' ? 'Yan panel' : 'Side panel', () => act($, 'side'), { plain: true })] }),
+      button(Button, 'qm-side', t.side || t.openWeb, () => act($, 'side'), { plain: true })] }),
     stats, ...(expanded ? [actionRow] : [button(Button,'qm-toggle',state.paused?t.resume:t.pause,()=>act($,state.paused?'resume':'pause'),{variant:'primary',hotkey:'p'})]),
     ...(state.running ? [active] : !inline ? [node(Text, t.empty, {dimColor:true})] : []),
     ...(expanded ? [node(Text, t.pauseHint, { dimColor: true })] : []),
@@ -738,8 +743,8 @@ async function buildPane($, e) {
     ...(expanded && state.pending.length ? [search, selectionRow] : []),
     ...(expanded ? (view.rows.length ? rows : state.pending.length ? [node(Text, t.noMatch, { dimColor: true })] : []) : []),
     ...(expanded && view.totalPages > 1 ? [pages] : []), ...(editing ? [editBox] : []), ...(recover ? [recover] : []),
-    button(Button, 'qm-details', language === 'tr' ? (detailsOpen ? 'Ayrıntıları gizle' : 'Ayrıntılar') : (detailsOpen ? 'Hide details' : 'Details'), () => { detailsOpen = !detailsOpen; redraw($); }, { plain: true }),
-    ...(detailsOpen ? [langControl, contextLine, node(Text,t.keys,{dimColor:true}), advancedActions,
+    button(Button, 'qm-details', detailsOpen ? (t.hideDetails || t.close) : (t.details || t.analytics), () => { detailsOpen = !detailsOpen; redraw($); }, { plain: true }),
+    ...(detailsOpen ? [contextLine, node(Text,t.keys,{dimColor:true}), advancedActions,
       ...(state.undo.length && !state.pending.length && !state.running ? [button(Button, 'qm-empty-undo', t.undo, () => act($, 'undo'))] : []),
       ...(recent ? [recent] : []), ...recentOutcomes, node(Text, t.help, { dimColor: true })] : [])
   ], { rowGap: 1 });
@@ -778,7 +783,7 @@ export function register(on) {
       }
       const resumed = await readState($);
       if (resumed.recoverable) $.ui.toast('QM: previous in-flight task needs review. /qm recover (may repeat work).');
-      try { language = (await $.store.get(PREFS_KEY)) === 'tr' ? 'tr' : 'en'; }
+      try { language = canonicalLocale(await $.store.get(PREFS_KEY)) || 'tr'; }
       catch (error) { logError($, error); }
     } catch (error) { reportStartupIssue($, 'session state', error); }
     try { $.ui.invalidate('ui.render'); } catch {}

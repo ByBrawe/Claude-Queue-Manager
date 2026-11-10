@@ -7,6 +7,17 @@ import { host, find, flush } from './helpers.mjs';
 import { initialState, enqueue, configure, claim, settleTurn, undo, normalizeState } from '../src/queue.mjs';
 import { acquireLock, releaseLock } from '../src/restore-lock.mjs';
 
+test('language is visible in compact UI; Turkish defaults and saved English persists',async()=>{
+ for(const saved of [undefined,'en']){
+  const memory=new Map();if(saved)memory.set('claude-queue-manager:prefs:locale',saved);
+  const h=await host({memory});await h.cmd('');
+  const ui=await h.emit('ui.render',{component:'AbovePrompt',props:{},surface:'desktop'},{component:'AbovePrompt'});
+  const select=find(ui,'qm-language');assert.equal(select.value,saved||'tr');
+  await select.onSelect('tr');assert.equal(memory.get('claude-queue-manager:prefs:locale'),'tr');
+  const help=await h.cmd('help');assert.match(help.text,/Mesaj kutusunun/);
+ }
+});
+
 test('Claude queue tool builds and reorders pending work without steering the active turn',async()=>{
  const h=await host();await h.emit('turn.start',{turnId:'user-planning'});
  const call=args=>h.emit('tool.call',{tool:'mcp__qm__queue',...args},{tool:'mcp__qm__queue'});
