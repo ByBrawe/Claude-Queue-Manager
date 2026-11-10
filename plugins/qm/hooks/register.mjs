@@ -548,7 +548,7 @@ async function buildPane($, e) {
   for (const id of selectedIds) if (!state.pending.some(x => x.id === id)) selectedIds.delete(id);
   const selection = state.pending.filter(x => selectedIds.has(x.id));
 
-  const title = node(Text, `${t.title}   |   ${status(state, t)}`, {
+  const title = node(Text, `${language === 'tr' ? 'Kuyruk' : 'Queue'} · ${status(state, t)}`, {
     color: state.paused ? 'yellow' : state.running ? 'green' : 'cyan', bold: true
   });
   const stats = node(Text, `${state.pending.length} ${t.pending}   •   ${state.stats.success} ✓   ${state.stats.failure + state.stats.timeout} ✕   ${state.stats.retried} ↺   ${state.stats.skipped} ↷`, { dimColor: true });
@@ -599,19 +599,21 @@ async function buildPane($, e) {
     } catch { $.ui.toast(t.invalidRepeat); }
   }
   const pasteInput = Input
-    ? Input({ key: 'qm-add-tasks', label: t.add, rows: inline ? 2 : 3, value: bulkDraft, autoFocus: true,
+    ? block(Box, [node(Text, language === 'tr' ? 'Görevler' : 'Tasks', { bold: true }),
+      Input({ key: 'qm-add-tasks', rows: inline ? 3 : 5, value: bulkDraft, autoFocus: true,
       placeholder: t.addHint, onInput: value => { bulkDraft = String(value ?? ''); },
-      onSubmit: queuePasted })
+      onSubmit: queuePasted }), node(Text, language === 'tr' ? 'Her satıra bir görev yaz veya || ile ayır.' : 'One task per line, or separate with ||.', { dimColor: true })], { rowGap: 0 })
     : node(Text, '/qm batch task 1 || task 2');
 
   const repeatInput = Input
-    ? Input({ key: 'qm-repeat-tasks', label: t.repeat, value: repeatDraft,
+    ? block(Box, [node(Text, language === 'tr' ? 'Tekrar (5 | devam et)' : 'Repeat (5 | continue)', { bold: true }),
+      Input({ key: 'qm-repeat-tasks', value: repeatDraft,
       placeholder: t.repeatHint, onInput: value => { repeatDraft = String(value ?? ''); },
-      onSubmit: queueRepeated })
+      onSubmit: queueRepeated })], { rowGap: 0 })
     : node(Text, '/qm repeat 5 continue');
 
   const search = Input
-    ? Input({ key: 'qm-search', label: t.search, value: searchText,
+    ? Input({ key: 'qm-search', placeholder: t.search, value: searchText,
       onSubmit: value => { searchText = String(value ?? ''); page = 0; redraw($); },
       onInput: value => { searchText = String(value ?? ''); page = 0; redraw($); } })
     : node(Text, `${t.search}: ${searchText}`);
@@ -654,7 +656,7 @@ async function buildPane($, e) {
   const editBox = editing
     ? block(Box, [
         node(Text, `${t.selected}: #${editPosition + 1}`, { color: 'cyan' }),
-        ...(Input ? [Input({ key: 'qm-edit-input', label: t.edit, value: editDraft,
+        ...(Input ? [node(Text, t.edit), Input({ key: 'qm-edit-input', value: editDraft,
           onInput: value => { editDraft = String(value ?? ''); },
           onSubmit: async value => {
             if (await actTask($, editing.id, 'edit', value)) { editId = null; editDraft = ''; redraw($); }
@@ -683,18 +685,22 @@ async function buildPane($, e) {
     : null;
 
   return block(Box, [
-    Box({ flexDirection: 'row', flexWrap: 'wrap', columnGap: 2, children: [title, langControl,
+    Box({ flexDirection: 'row', flexWrap: 'wrap', columnGap: 2, children: [title,
       button(Button, 'qm-close', language === 'tr' ? 'Kapat' : 'Close', () => act($, 'close'), { plain: true }),
       button(Button, 'qm-side', language === 'tr' ? 'Yan panel' : 'Side panel', () => act($, 'side'), { plain: true })] }),
-    stats, ...(pauseInfo ? [pauseInfo] : []), active, actionRow, ...(confirmNotice ? [confirmNotice] : []),
+    ...(state.pending.length || state.running ? [stats, active, actionRow] : []),
+    ...(pauseInfo ? [pauseInfo] : []), ...(confirmNotice ? [confirmNotice] : []),
     pasteInput, button(Button, 'qm-add-action', t.addButton, () => queuePasted(bulkDraft)),
-    ...(!inline || detailsOpen ? [repeatInput, button(Button, 'qm-repeat-action', t.repeatButton, () => queueRepeated(repeatDraft))] : []),
+    ...(detailsOpen ? [repeatInput, button(Button, 'qm-repeat-action', t.repeatButton, () => queueRepeated(repeatDraft))] : []),
     ...(state.pending.length ? [search, selectionRow] : []),
-    ...(view.rows.length ? rows : [node(Text, state.pending.length ? t.noMatch : t.empty, { dimColor: true })]),
+    ...(view.rows.length ? rows : state.pending.length ? [node(Text, t.noMatch, { dimColor: true })] : []),
     ...(view.totalPages > 1 ? [pages] : []), ...(editing ? [editBox] : []), ...(recover ? [recover] : []),
     button(Button, 'qm-details', language === 'tr' ? (detailsOpen ? 'Ayrıntıları gizle' : 'Ayrıntılar') : (detailsOpen ? 'Hide details' : 'Details'), () => { detailsOpen = !detailsOpen; redraw($); }, { plain: true }),
-    ...(detailsOpen ? [contextLine, advancedActions, ...(recent ? [recent] : []), ...recentOutcomes, node(Text, t.help, { dimColor: true })] : [])
-  ], inline ? { rowGap: 0 } : {});
+    ...(detailsOpen ? [langControl, contextLine, advancedActions,
+      ...(!state.pending.length && !state.running ? [actionRow] : []),
+      ...(state.undo.length && !state.pending.length && !state.running ? [button(Button, 'qm-empty-undo', t.undo, () => act($, 'undo'))] : []),
+      ...(recent ? [recent] : []), ...recentOutcomes, node(Text, t.help, { dimColor: true })] : [])
+  ], { rowGap: 1 });
 }
 
 export function register(on) {
@@ -814,3 +820,4 @@ export function register(on) {
   on('ui.render', { component: 'AbovePrompt' }, drawBand);
   on('ui.render', { component: 'Pane', requestId: PANE_ID }, drawPane);
 }
+

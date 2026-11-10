@@ -114,7 +114,10 @@ test('TUI/desktop panel renders controls and queue content without model calls',
   await h.emit('session.start');
   await h.emit('command.run', { args: 'pause' }, { command: 'qm' });
   await h.emit('command.run', { args: 'batch fix bug || run tests' }, { command: 'qm' });
-  const ui = await panel(h);
+  let ui = await panel(h);
+  assert.equal(controls(ui, x => x.key === 'qm-repeat-tasks').length,0);
+  await controls(ui, x => x.key === 'qm-details')[0].onPress();
+  ui = await panel(h);
   const inputs = controls(ui, x => x.key?.startsWith('qm-') && typeof x.onInput === 'function');
   const buttons = controls(ui, x => x.key?.startsWith('qm-') && typeof x.onPress === 'function');
   assert.ok(inputs.some(x => x.key === 'qm-add-tasks'));
@@ -142,6 +145,8 @@ test('panel paste, repeat, search, language and confirm-to-clear work', async ()
   let ui = await panel(h);
   const add = controls(ui, x => x.key === 'qm-add-tasks')[0];
   await add.onSubmit('alpha\nbeta\ngamma');
+  ui = await panel(h);
+  await controls(ui, x => x.key === 'qm-details')[0].onPress();
   ui = await panel(h);
   const repeat = controls(ui, x => x.key === 'qm-repeat-tasks')[0];
   await repeat.onSubmit('3 | continue');
@@ -244,3 +249,4 @@ test('web bridge applies a browser reorder to real session queue before resuming
   const stopped=await h.emit('command.run',{args:'web stop'},{command:'qm'});
   assert.match(stopped.text,/stopped/);
 });
+

@@ -1,6 +1,6 @@
 {
   "name": "claude-queue-manager",
-  "version": "0.4.3",
+  "version": "0.4.4",
   "private": true,
   "type": "module",
   "description": "Claude Code Desktop Queue Manager mod",
@@ -16,3 +16,4 @@
     "node": ">=20"
   }
 }
+

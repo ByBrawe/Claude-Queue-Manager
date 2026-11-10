@@ -1,3 +1,10 @@
+## 0.4.4 — Native form layout
+
+- Put task and repeat captions above their inputs instead of beside them so narrow Desktop panes retain a usable editor width.
+- Use taller task entry, shorter headers and consistent section spacing.
+- Hide empty-queue statistics and inactive actions; move repeat/language/advanced controls into Details on both surfaces.
+- Claude Mods does not expose the Desktop top-right toolbar as a render site; keep the supported inline and side-pane entry points.
+
 ## 0.4.3 — Inline manager and queue safety
 
 - Open /qm above the composer by default; /qm side is an explicit native side-pane option and /qm close hides management. Empty queues occupy no prompt band. Advanced information is collapsible.
@@ -50,3 +57,4 @@
 ## 0.1.0
 
 - Durable one-turn-at-a-time `/qm` queue and MIT-licensed standalone Claude Code mod.
+

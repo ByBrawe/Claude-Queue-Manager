@@ -20,6 +20,12 @@ for (const surface of ['terminal', 'desktop'] as const) {
         viewport: { columns, rows: 40 }, props })
       expect(await pane.find({ key: 'qm-search' })).toBeDefined()
       expect(await pane.find({ key: 'qm-add-tasks' })).toBeDefined()
+      // Inline captions previously squeezed the editor to a tiny column.
+      expect((await pane.find({ key: 'qm-add-tasks' }))?.props.label).toBeUndefined()
+      expect(await pane.find({ key: 'qm-repeat-tasks' })).toBeUndefined()
+      await pane.press({ key: 'qm-details' })
+      expect((await pane.find({ key: 'qm-repeat-tasks' }))?.props.label).toBeUndefined()
+      await pane.press({ key: 'qm-details' })
       expect(await pane.find({ key: 'qm-rm-2' })).toBeDefined()
       await pane.input({ key: 'qm-search', text: 'Second', kind: 'change' })
       expect(await pane.find({ key: 'qm-rm-1' })).toBeUndefined()
@@ -48,3 +54,4 @@ for (const surface of ['terminal', 'desktop'] as const) {
     await band.unmount()
   })
 }
+
