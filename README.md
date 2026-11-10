@@ -33,6 +33,16 @@ claude plugin install qm@claude-queue-manager
 
 3. Restart the local Claude Desktop **Code** session. The archive contains the marketplace manifest and plugin sources, not a standalone app. No API key or npm install is needed.
 
+## v0.4.3: inline manager and safe queue operations
+
+- **/qm** opens a compact manager above the composer. **/qm close** hides it. An empty queue has no permanent QM strip. The Details button reveals repeat entry and analytics in the inline view.
+- **/qm side** opens the optional native side pane; its exact placement and user-resized dimensions are controlled by Claude. **/qm inline** returns to the composer.
+- Row edits/removal/reordering use stable IDs. Undo cannot resurrect completed tasks. Pause remains in force after a failure, and recover only accepts orphaned tasks loaded after a restart.
+- **/clear** carries pending work into the new conversation paused for review. A retired source copy is kept for interrupted-transfer recovery and cannot run again.
+- Queue count limits (200 per batch, 500 pending, 20,000 characters per task) are also subject to a **2,800 KiB serialized queue budget** and Claude's shared **4 MiB plugin store**. Old undo/history may be trimmed first; pending/running work is never trimmed. If an addition cannot fit it is rejected without changing the queue.
+- **/qm restore** now requires **local Node.js 20+**, as does web mode; the ordinary inline/native queue manager does not. A filesystem lock prevents two Claude processes from restoring the same source simultaneously. Close the source session before restoring. A crash may leave a lock in ~/.claude/qm-restore-locks; the error names its path. Inspect both queues and close the involved sessions before manually removing a stale lock. Locks are never stolen automatically.
+- For source changes, run npm run verify, npm run validate:mod and npm run test:host.
+
 ## Mod loading fix (v0.4.2)
 
 v0.4.0–v0.4.1 contain API capability checks that Claude Code's hooks-module validator rejects, preventing both the /qm command and QM button from loading. Update the marketplace and plugin, then reload the session:
@@ -46,9 +56,9 @@ Run `/reload-plugins` in each open Code session, or start a new session. Verify 
 
 ## Desktop slash-command workaround (v0.4.1)
 
-Claude Desktop has a [known issue with commands dynamically registered by mods](https://github.com/anthropics/claude-code/issues/99691): `/qm` may show **"isn't a command here"** even when the plugin is installed. **QM v0.4.1 registers `/qm` at the very start of `session.start`**, exposes registration failures via a visible toast and log, and **always renders a small `QM` button above the Code prompt**, including when the queue is empty. Click this button to open the real queue panel **without asking Claude/the model**. The button requires the mod to load and the host to render the `AbovePrompt` surface; it cannot fix a mod that the Desktop app never loaded.
+Claude Desktop has a [known issue with commands dynamically registered by mods](https://github.com/anthropics/claude-code/issues/99691): `/qm` may show **"isn't a command here"** even when the plugin is installed. **QM v0.4.1 registers `/qm` at the very start of `session.start`**, exposes registration failures via a visible toast and log, and **previously rendered a small `QM` button above the Code prompt**. In v0.4.3 the idle button is removed; an entry point remains only when there is queued work or a startup error. Click this button to open the real queue panel **without asking Claude/the model**. The button requires the mod to load and the host to render the `AbovePrompt` surface; it cannot fix a mod that the Desktop app never loaded.
 
-**Quick check:** In a new **local Code** session, look just above the composer for the `QM` button. If visible, click it. If the button appears but `/qm` still warns, that is probably Desktop's command-discovery bug, not a missing queue. If **neither** appears, check that the plugin is enabled and run `claude plugin test` / `claude plugin validate ./plugins/qm` in a compatible Claude Code CLI. Try a new session or `/reload-plugins` after updating. Normal Chat tabs and remote sessions are not supported. There is no way for QM to force the Desktop composer to recognize a dynamic slash command.
+**Quick check:** In a new **local Code** session, run `/qm` to open the inline manager, or look for Open queue when there is queued work. If visible, click it. If the button appears but `/qm` still warns, that is probably Desktop's command-discovery bug, not a missing queue. If **neither** appears, check that the plugin is enabled and run `claude plugin test` / `claude plugin validate ./plugins/qm` in a compatible Claude Code CLI. Try a new session or `/reload-plugins` after updating. Normal Chat tabs and remote sessions are not supported. There is no way for QM to force the Desktop composer to recognize a dynamic slash command.
 
 Source comparisons: [After](https://github.com/midudev/better-claude/blob/main/plugins/after/hooks/register.tsx) and [Porthole](https://github.com/modmyclaude/claude-code-mods/blob/main/mods/porthole/hooks/register.tsx) register commands immediately, while [Kit](https://github.com/effectustasi/kit/blob/main/hooks/register.tsx) offers a persistent above-prompt surface. Static markdown skills with the same name do **not** route to a mod's `command.run` hook, as reported in the linked Desktop issue.
 

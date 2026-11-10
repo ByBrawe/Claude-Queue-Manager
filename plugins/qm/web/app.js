@@ -7,6 +7,7 @@ const selected = new Set();
 let snapshot = null;
 let revision = -1;
 let pendingActionId = null;
+let pendingDraft = null;
 let searchTerm = '';
 let dragging = null;
 let locale = 'en';
@@ -201,6 +202,8 @@ async function refresh() {
     snapshot = data.state;
     if (pendingActionId && data.lastAck?.id === pendingActionId) {
       const ack = data.lastAck; pendingActionId = null;
+      if (ack.ok && pendingDraft !== null && $('tasks-input').value === pendingDraft) $('tasks-input').value = '';
+      pendingDraft = null;
       toast(ack.ok ? t().applied : `${t().failed}: ${ack.error}`,!ack.ok);
     }
     // A running drag must not be interrupted by a periodic rerender.
@@ -217,7 +220,8 @@ async function action(operation) {
     const data = await request('/api/action',{method:'POST',body:JSON.stringify({revision,operation})});
     pendingActionId = data.accepted;
     render();
-  } catch (error) { toast(error.status === 409 ? t().stale : error.message,true); await refresh(); }
+    return true;
+  } catch (error) { toast(error.status === 409 ? t().stale : error.message,true); await refresh(); return false; }
 }
 function moveOne(id, delta) {
   const ordered = taskIds(); const at = ordered.indexOf(id); const target = at + delta;
@@ -230,11 +234,12 @@ function moveGroup(place) {
   const picked = ordered.filter(id => chosen.has(id)); const other = ordered.filter(id => !chosen.has(id));
   void action({type:'reorder',ids:place==='top'?[...picked,...other]:[...other,...picked]});
 }
-function addTasks() {
+async function addTasks() {
+  const draft = $('tasks-input').value;
   const texts = $('tasks-input').value.split(/\r?\n|\s+\|\|\s+/).map(x => x.trim()).filter(Boolean);
   if (!texts.length || texts.length > 200 || texts.some(x => x.length > 20000)) { toast(t().invalid,true);return; }
-  void action({type:'add',texts});
-  $('tasks-input').value = '';
+  // Preserve the draft until the mod actually acknowledges a successful add.
+  if (await action({type:'add',texts})) pendingDraft = draft;
 }
 function confirmDelete() { $('overlay').classList.remove('hidden'); }
 function dismissDelete() { $('overlay').classList.add('hidden'); }

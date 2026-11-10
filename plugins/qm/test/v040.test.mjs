@@ -1,3 +1,5 @@
+import { execFileSync } from 'node:child_process';
+import { fileURLToPath } from 'node:url';
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { initialState, normalizeState, enqueue, claim, settleTurn, recordContext,
@@ -12,6 +14,8 @@ function fakeHost(shared = new Map(), id = `v040-session-${++seq}`) {
   const handlers=[]; const sent=[]; const notices=[]; const clock={now:Date.now()};
   let tokens=50000, window=200000, modelAnswer='QM_VERDICT:PASS';
   const tools={
+    plugin:{root:fileURLToPath(new URL('../',import.meta.url))},
+    process:{run:async(argv)=>{try{return {exitCode:0,stdout:execFileSync(argv[0],argv.slice(1),{encoding:'utf8',stdio:['ignore','pipe','pipe']}),stderr:''};}catch(e){return {exitCode:e.status||1,stdout:e.stdout||'',stderr:e.stderr||String(e)};}}},
     session:{id:async()=>id,usage:async()=>({context:{tokens,window}})},
     store:{ get:async k=>shared.get(k),set:async(k,v)=>{shared.set(k,structuredClone(v));},keys:async()=>[...shared.keys()] },
     clock:{now:async()=>clock.now,after:(ms,cb)=>({cancel(){},call:cb,ms})},
@@ -30,7 +34,7 @@ function fakeHost(shared = new Map(), id = `v040-session-${++seq}`) {
 test('v0.3 state upgrades in place, preserving queued tasks and history',()=>{
   const prior={version:1,pending:[{id:9,text:'keep me',createdAt:7}],running:null,done:[{id:1,text:'done',finishedAt:3}],nextId:10,paused:true,undo:[]};
   const newer=normalizeState(prior,'id');
-  assert.equal(newer.version,2);assert.equal(newer.pending[0].text,'keep me');assert.equal(newer.done[0].text,'done');
+  assert.equal(newer.version,3);assert.equal(newer.pending[0].text,'keep me');assert.equal(newer.done[0].text,'done');
   assert.equal(newer.pending[0].when,'always');assert.equal(newer.nextId,10);assert.equal(newer.history.length,1);
 });
 
@@ -177,7 +181,7 @@ test('mod: paused session can be transferred once into another empty session',as
   const sessions=await b.cmd('sessions');assert.match(sessions.text,/save-session/);
   const restore=await b.cmd('restore save-session');assert.match(restore.text,/transferred 2/);
   assert.deepEqual(b.getState().pending.map(x=>x.text),['A','B']);assert.equal(b.getState().paused,true);
-  assert.equal(a.getState().pending.length,0);assert.equal(a.getState().transferredTo,'new-session');
+  assert.equal(a.getState().pending.length,2);assert.equal(a.getState().transferredTo,'new-session');
   await a.cmd('resume'); await flush();
   assert.equal(a.sent.length,0,'original session must not replay transferred tasks');
   const repeat=await b.cmd('restore save-session');assert.match(repeat.text,/error/i);

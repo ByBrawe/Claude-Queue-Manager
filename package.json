@@ -1,15 +1,16 @@
 {
   "name": "claude-queue-manager",
-  "version": "0.4.2",
+  "version": "0.4.3",
   "private": true,
   "type": "module",
   "description": "Claude Code Desktop Queue Manager mod",
   "license": "MIT",
   "scripts": {
-    "check": "node --check plugins/qm/hooks/register.mjs && node --check plugins/qm/src/commands.mjs && node --check plugins/qm/src/queue.mjs && node --check plugins/qm/src/verification.mjs && node --check plugins/qm/src/view.mjs && node --check plugins/qm/web/server.mjs && node --check plugins/qm/web/app.js",
+    "check": "node --check plugins/qm/hooks/register.mjs && node --check plugins/qm/src/commands.mjs && node --check plugins/qm/src/queue.mjs && node --check plugins/qm/src/verification.mjs && node --check plugins/qm/src/view.mjs && node --check plugins/qm/web/server.mjs && node --check plugins/qm/web/app.js && node --check plugins/qm/src/persistence.mjs && node --check plugins/qm/src/restore-lock.mjs",
     "test": "node --test plugins/qm/test/*.test.mjs",
     "validate:mod": "claude plugin validate ./plugins/qm",
-    "verify": "npm run check && npm test"
+    "verify": "npm run check && npm test",
+    "test:host": "claude plugin test ./plugins/qm"
   },
   "engines": {
     "node": ">=20"

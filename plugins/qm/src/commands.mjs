@@ -13,6 +13,9 @@ export function parseDuration(text, allowOff = true) {
 export function parseCommand(raw = '') {
   const args = String(raw ?? '').trim();
   if (!args) return { type: 'open' };
+  if (/^(side|panel\s+side)$/i.test(args)) return { type: 'side' };
+  if (/^(inline|panel\s+inline)$/i.test(args)) return { type: 'open' };
+  if (/^(close|hide)$/i.test(args)) return { type: 'close' };
   if (/^(help|\?)$/i.test(args)) return { type: 'help' };
   if (/^(list|ls|status|show)$/i.test(args)) return { type: 'list' };
   if (/^(pause|hold)$/i.test(args)) return { type: 'pause' };
@@ -94,7 +97,8 @@ export function brief(state, pageSize = 12) {
   return lines.join('\n');
 }
 export const HELP = [
-  '/qm                          Open queue panel',
+  '/qm                          Open manager above the prompt',
+  '/qm side | inline | close     Choose side pane, inline manager, or close',
   '/qm add <task>               Queue one task',
   '/qm repeat 20 devam et      Queue 20 separate turns (max 200)',
   '/qm batch A || B || C       Queue tasks in order (max 200)',

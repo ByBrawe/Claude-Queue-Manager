@@ -1,3 +1,15 @@
+## 0.4.3 — Inline manager and queue safety
+
+- Open /qm above the composer by default; /qm side is an explicit native side-pane option and /qm close hides management. Empty queues occupy no prompt band. Advanced information is collapsible.
+- Fix the missing search Input callback that made Claude reject the entire panel. Add real terminal/Desktop rendering tests at narrow and wide widths to CI.
+- Resolve row actions by stable task ID under the queue mutex.
+- Retire started/skipped tasks from every undo snapshot; migrate old snapshots without replaying completed work.
+- Preserve explicit pause decisions through success, failure, timeout, verification and retries. Recover refuses tasks still live in the current process.
+- Keep cached state unchanged until storage succeeds; bound retained undo/history by bytes and reject oversized additions atomically.
+- Preserve the queue paused after /clear; cancel old dispatch/verification work across session changes.
+- Serialize cross-process restores with an exclusive filesystem lock (Node.js 20+ for restore), retaining a frozen source copy until the transfer succeeds.
+- Carry analytics/context/history through the dashboard server; retain browser drafts until a successful mod acknowledgement.
+
 ## 0.4.2 — Fix mod loading
 
 - Remove Mods API namespace/method capability probes rejected by Claude Code's static module validator.

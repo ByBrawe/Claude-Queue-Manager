@@ -66,40 +66,34 @@ test('registration failure is visible instead of silently hidden', async () => {
   assert.ok(h.displayedLogs.some(s => s.includes('command not available')));
 });
 
-test('native QM button exists with empty queue and opens panel without a model turn', async () => {
-  const h = host();
-  await h.emit('session.start');
-  const band = await h.emit('ui.render', {props:{},surface:'desktop'}, {component:'AbovePrompt'});
-  const btn=findButton(band,'qm-open');
-  assert.ok(btn,'QM always visible even without queued messages');
-  assert.equal(btn.label,'QM');
-  await btn.onPress();
-  assert.equal(h.openings.length,1);
-  assert.equal(h.openings[0].id,'qm');
-  assert.equal(h.sent.length,0);
+test('idle band is invisible and /qm opens inline without a model turn', async () => {
+ const h=host();await h.emit('session.start');
+ const idle=await h.emit('ui.render',{props:{},surface:'desktop'},{component:'AbovePrompt'});
+ assert.equal(findButton(idle,'qm-open'),undefined);
+ await h.emit('command.run',{args:''},{command:'qm'});
+ const band=await h.emit('ui.render',{props:{},surface:'desktop'},{component:'AbovePrompt'});
+ assert.ok(findButton(band,'qm-close'));assert.equal(h.openings.length,0);assert.equal(h.sent.length,0);
+ await findButton(band,'qm-close').onPress();
+ const closed=await h.emit('ui.render',{props:{},surface:'desktop'},{component:'AbovePrompt'});
+ assert.equal(findButton(closed,'qm-close'),undefined);
 });
 
-test('persistent button remains accessible if /qm registration fails', async () => {
-  const h=host({registrationError:new Error('desktop composer bug')});
-  await h.emit('session.start');
-  const band=await h.emit('ui.render',{props:{},surface:'terminal'},{component:'AbovePrompt'});
-  assert.ok(findButton(band,'qm-open'));
-  await findButton(band,'qm-open').onPress();
-  assert.equal(h.openings.length,1);
+test('fallback opens inline only when command registration has failed',async()=>{
+ const h=host({registrationError:new Error('composer bug')});await h.emit('session.start');
+ const band=await h.emit('ui.render',{props:{},surface:'terminal'},{component:'AbovePrompt'});
+ await findButton(band,'qm-open').onPress();
+ const opened=await h.emit('ui.render',{props:{},surface:'terminal'},{component:'AbovePrompt'});
+ assert.ok(findButton(opened,'qm-close'));assert.equal(h.openings.length,0);
 });
 
-test('persistent button still renders when queue storage is unavailable', async () => {
-  const h=host({loadError:new Error('state not readable')});
-  await h.emit('session.start');
-  const band=await h.emit('ui.render',{props:{}},{component:'AbovePrompt'});
-  assert.ok(findButton(band,'qm-open'));
+test('storage error keeps a recovery entry point visible',async()=>{
+ const h=host({loadError:new Error('state not readable')});await h.emit('session.start');
+ const band=await h.emit('ui.render',{props:{}},{component:'AbovePrompt'});
+ assert.ok(findButton(band,'qm-open'));
 });
 
-test('panel placement failure is visible, without sending a model prompt', async () => {
-  const h=host({placement:{isPlaced:false,reason:'host does not show a pane'}});
-  await h.emit('session.start');
-  const band=await h.emit('ui.render',{props:{}},{component:'AbovePrompt'});
-  await findButton(band,'qm-open').onPress();
-  assert.ok(h.notices.some(s=>s.includes('host does not show a pane')));
-  assert.equal(h.sent.length,0);
+test('side panel remains optional and placement failure is visible',async()=>{
+ const h=host({placement:{isPlaced:false,reason:'host does not show a pane'}});await h.emit('session.start');
+ await h.emit('command.run',{args:'side'},{command:'qm'});
+ assert.ok(h.notices.some(s=>s.includes('host does not show a pane')));assert.equal(h.sent.length,0);
 });

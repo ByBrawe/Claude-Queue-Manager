@@ -7,6 +7,7 @@ import { initialState, normalizeState, enqueue, remove, move, edit, clear, undo,
 import { MARKER_NOTE, verdictFromText, parseAiVerdict, buildVerificationPrompt } from '../src/verification.mjs';
 import { parseCommand, HELP } from '../src/commands.mjs';
 import { uiStrings, filteredPage, parseRepeatForm, splitPaste, SUPPORTED_UI_LANGUAGES } from '../src/view.mjs';
+import { boundedState } from '../src/persistence.mjs';
 
 const PANE_ID = 'qm';
 const STORE_PREFIX = 'claude-queue-manager:queue:';
@@ -35,6 +36,11 @@ const PREFS_KEY = 'claude-queue-manager:prefs:locale';
 // Desktop may show an outdated slash-command list until a live session starts.
 // A native button is always rendered as a second, model-free entry point.
 let startupWarning = null;
+let managerOpen = false;
+let detailsOpen = false;
+let carryOver = false;
+let verificationEpoch = 0;
+let activeTurnId = null;
 
 function reportStartupIssue($, stage, error) {
   const reason = String(error?.message ?? error);
@@ -45,9 +51,18 @@ function reportStartupIssue($, stage, error) {
   try { $.ui.toast(message, { timeoutMs: 10000 }); } catch {}
 }
 
-async function openManager($) {
+async function openManager($, side = false) {
+  if (!side) {
+    managerOpen = true;
+    $.ui.invalidate('ui.render');
+    // Close a side pane left open by an earlier release, if present.
+    try { await $.ui.close({ id: PANE_ID }); } catch {}
+    return;
+  }
+  managerOpen = false;
+  $.ui.invalidate('ui.render');
   try {
-    const outcome = await $.ui.open({ id: PANE_ID, title: 'Queue Manager', focus: true, closeOnEscape: true });
+    const outcome = await $.ui.open({ id: PANE_ID, title: 'Queue Manager', focus: true, closeOnEscape: true, rows: 18, columns: 56 });
     if (outcome?.isPlaced === false) {
       reportStartupIssue($, 'panel', outcome.reason ?? 'the host could not place the panel');
     }
@@ -62,6 +77,22 @@ function exclusive(work) {
 
 async function load($) {
   const id = await $.session.id();
+  if (cached && id !== cachedSessionId && carryOver) {
+    carryOver = false;
+    const oldId = cachedSessionId;
+    const old = cached;
+    const next = boundedState({ ...old, sessionId: id, paused: true, busy: false,
+      recoverable: Boolean(old.running), pauseReason: 'session-cleared', undo: [] });
+    // Retire first; if the new write fails, restore the old source.
+    await $.store.set(STORE_PREFIX + oldId, { ...old,
+      undo: [], paused: true, transferredTo: id });
+    try { await $.store.set(STORE_PREFIX + id, next); }
+    catch (error) { await $.store.set(STORE_PREFIX + oldId, old); throw error; }
+    cachedSessionId = id;
+    cached = next;
+    return cached;
+  }
+  if (id !== cachedSessionId) carryOver = false;
   if (cached && id === cachedSessionId) {
     // A paused queue may be transferred to another session. Invalidate an old
     // process-local cache so resuming the source cannot replay transferred tasks.
@@ -77,9 +108,23 @@ async function load($) {
   return cached;
 }
 
+function readState($) { return exclusive(() => load($)); }
+
 async function save($, next) {
-  cached = next;
-  await $.store.set(STORE_PREFIX + cachedSessionId, next);
+  const key = STORE_PREFIX + cachedSessionId;
+  const persisted = await $.store.get(key);
+  if (persisted?.transferredTo && !next.transferredTo) throw new Error('This queue was transferred to another session.');
+  let durable = boundedState({ ...next, updatedAt: await $.clock.now() });
+  try { await $.store.set(key, durable); }
+  catch (error) {
+    // Other sessions consume the same store. Retry quota errors without optional
+    // history; failed writes must never replace the last durable in-memory state.
+    if (!/4\s*MiB|quota|storage|store.*(limit|size|full)/i.test(String(error?.message ?? error))) throw error;
+    durable = { ...durable, undo: [], history: [], done: [] };
+    try { await $.store.set(key, durable); }
+    catch { throw new Error('Plugin storage is full. Shorten this batch or clear old saved queues; existing work is unchanged.'); }
+  }
+  cached = durable;
   webRevision++;
   if (web) await sendWebSnapshot($);
   $.ui.invalidate('ui.render');
@@ -192,6 +237,7 @@ async function startWeb($) {
 async function change($, fn) {
   return exclusive(async () => {
     const before = await load($);
+    if (before.transferredTo) throw new Error(`Queue was transferred to ${before.transferredTo}; edit it in that session.`);
     const after = fn(before, await $.clock.now());
     if (after !== before) await save($, after);
     return after;
@@ -214,10 +260,12 @@ function cancelRetryTimer() {
 
 function scheduleNext($) {
   cancelRetryTimer();
+  const epoch = verificationEpoch;
   // Read the actual context before dispatch, not a stale snapshot from the last turn.
   void (async () => {
     const usage = await readUsage($);
     return exclusive(async () => {
+      if (epoch !== verificationEpoch) return { task: null };
       let state = await load($);
       if (usage) {
         const updated = recordContext(state, usage);
@@ -228,17 +276,23 @@ function scheduleNext($) {
       return result;
     });
   })().then(result => {
-    if (result.task) { void submitOne($, result.task); return; }
+    if (epoch !== verificationEpoch) return;
+    if (result.task) { void submitOne($, result.task, epoch); return; }
     if (result.waitMs > 0) {
       retryTimer = $.clock.after(result.waitMs, () => { retryTimer = null; scheduleNext($); });
     }
   }).catch(error => logError($, error));
 }
 
-async function submitOne($, task) {
+async function submitOne($, task, epoch) {
   let dropped;
   try {
-    const state = await load($);
+    const state = await readState($);
+    if (epoch !== verificationEpoch || state.running?.id !== task.id || state.recoverable || state.transferredTo) return;
+    if (state.paused) {
+      await change($, current => rejectSubmission(current, task.id));
+      return;
+    }
     const text = state.config.verify === 'marker' ? task.text + MARKER_NOTE : task.text;
     const result = await $.prompt.submit({ text, asUser: true });
     dropped = result?.drop;
@@ -298,9 +352,14 @@ async function restoreSession($, sessionId, acknowledgeRunning) {
     if (sessionId === targetId) throw new Error('Cannot restore the current session into itself');
     if (target.pending.length || target.running || target.history.length) throw new Error('Target session must have an empty QM queue and history');
     const key = STORE_PREFIX + sessionId;
+    const owner = `${targetId}:${await $.clock.now()}:${Math.random().toString(36).slice(2)}`;
+    const lockScript = `${$.plugin.root}/src/restore-lock.mjs`;
+    const lock = await $.process.run(['node', lockScript, 'acquire', sessionId, owner], { timeoutMs: 6000 });
+    if (lock.exitCode !== 0) throw new Error(lock.stderr || 'Could not lock source queue. Restore requires local Node.js 20+.');
+    try {
     const raw = await $.store.get(key);
     if (!raw) throw new Error('No saved queue with that session ID');
-    if (raw.transferredTo) throw new Error(`Queue was already transferred to ${raw.transferredTo}`);
+    if (raw.transferredTo && raw.transferredTo !== targetId) throw new Error(`Queue was already transferred to ${raw.transferredTo}`);
     if (!raw.paused && !raw.running) throw new Error('Source queue is active. Pause it in its original session first.');
     if (raw.running && !acknowledgeRunning) throw new Error('Source has an in-flight task. Use: /qm restore SESSION_ID recover (may duplicate work)');
     let source = normalizeState(raw, sessionId, await $.clock.now());
@@ -309,11 +368,17 @@ async function restoreSession($, sessionId, acknowledgeRunning) {
     const transferred = { ...source, sessionId: targetId, paused: true,
       pauseReason: 'restored-needs-review', transferredTo: null, busy: false, running: null, undo: [] };
     // First retire the original queue to prevent two sessions from running copied tasks.
-    const retired = { ...source, pending: [], running: null, paused: true, transferredTo: targetId };
+    // Keep a frozen source copy: a crash between the two durable writes cannot
+    // destroy the only copy of the work. Only the named target may retry it.
+    const retired = { ...source, undo: [], paused: true, transferredTo: targetId };
     await $.store.set(key, retired);
     try { await save($, transferred); }
     catch (error) { await $.store.set(key, raw); throw error; }
     return `QM: transferred ${transferred.pending.length} task(s) from ${sessionId}; queue paused for review. /qm resume when safe.`;
+    } finally {
+      const unlock = await $.process.run(['node', lockScript, 'release', sessionId, owner], { timeoutMs: 6000 });
+      if (unlock.exitCode !== 0) logError($, unlock.stderr || 'Restore lock release failed; inspect the stale lock before retrying.');
+    }
   });
 }
 
@@ -323,18 +388,25 @@ async function perform($, text) {
     await openManager($);
     return '';
   }
+  if (intent.type === 'side') { await openManager($, true); return ''; }
+  if (intent.type === 'close') {
+    managerOpen = false;
+    $.ui.invalidate('ui.render');
+    try { await $.ui.close({ id: PANE_ID }); } catch {}
+    return '';
+  }
   if (intent.type === 'help') return HELP;
   if (intent.type === 'web') return startWeb($);
   if (intent.type === 'web-stop') { await stopWeb($); return 'QM: web dashboard stopped'; }
   if (intent.type === 'sessions') return listSessions($);
   if (intent.type === 'restore') return restoreSession($, intent.sessionId, intent.recover);
-  if (intent.type === 'stats') return statsText(await load($));
-  if (intent.type === 'history') return formatHistory(await load($), intent.count);
-  if (intent.type === 'settings') return `QM settings: ${JSON.stringify((await load($)).config)}`;
+  if (intent.type === 'stats') return statsText(await readState($));
+  if (intent.type === 'history') return formatHistory(await readState($), intent.count);
+  if (intent.type === 'settings') return `QM settings: ${JSON.stringify((await readState($)).config)}`;
   if (intent.type === 'context-status') {
     const usage = await readUsage($);
     if (usage) await change($, state => recordContext(state, usage));
-    const state = await load($);
+    const state = await readState($);
     return `QM context: ${state.context ? `${state.context.tokens}/${state.context.window} (${state.context.percent}%)` : 'unavailable'}. Guard: ${state.config.contextPercent || 'off'}%.`;
   }
   if (intent.type === 'lang') {
@@ -343,11 +415,7 @@ async function perform($, text) {
     $.ui.invalidate('ui.render');
     return `QM: language set to ${language}`;
   }
-  if (intent.type === 'next') {
-    const state = await change($, state => ({ ...state, paused: false, pauseReason: null }));
-    scheduleNext($);
-    return `QM: ${state.pending.length} pending`;
-  }
+  if (intent.type === 'next') return perform($, 'resume');
   const updated = await change($, (state, now) => {
     switch (intent.type) {
       case 'add': return enqueue(state, intent.texts, intent.where ?? 'end', now, intent.when ?? 'always');
@@ -360,7 +428,11 @@ async function perform($, text) {
       case 'undo': return undo(state);
       case 'recover': return recover(state);
       case 'pause': return { ...state, paused: true, pauseReason: 'user' };
-      case 'resume': return { ...state, paused: false, pauseReason: null };
+      case 'resume': {
+        if (state.transferredTo) throw new Error('Queue was transferred to another session.');
+        if (state.recoverable) throw new Error('Review the orphaned task, then /qm recover before resuming.');
+        return { ...state, paused: false, pauseReason: null };
+      }
       default: throw new Error('Unsupported queue action');
     }
   });
@@ -398,36 +470,52 @@ async function act($, command) {
 
 async function drawBand($, e, next) {
   if (e.props?.hasSurvey) return next(e);
-  // The button exists even when no tasks are queued. It bypasses the Desktop
-  // composer's dynamic /qm validation issue (#99691) without a model call.
+  if (managerOpen) return drawPane($, e);
   const { Box, Text, Button } = $.ui.resolve(e);
-  const openButton = button(Button, 'qm-open', 'QM', () => openManager($), { plain: true });
+  const openButton = button(Button, 'qm-open', language === 'tr' ? 'Kuyruğu aç' : 'Open queue', () => openManager($), { plain: true });
   let state;
-  try { state = await load($); }
+  try { state = await readState($); }
   catch (error) {
-    // A corrupt store must not make the only fallback entry point disappear.
     return Box({ flexDirection: 'row', columnGap: 2, children: [
       node(Text, 'QM !', { color: 'yellow', bold: true }),
       openButton
     ] });
   }
-  if (!state.pending.length && !state.running) {
+  if (!state.pending.length && !state.running && !startupWarning) return next(e);
+  if (startupWarning) {
     return Box({ flexDirection: 'row', columnGap: 1, children: [
-      node(Text, startupWarning ? 'QM !' : 'QM', { color: startupWarning ? 'yellow' : undefined, dimColor: !startupWarning }),
+      node(Text, startupWarning, { color: 'yellow', wrap: 'truncate-end' }),
       openButton
     ] });
   }
   const t = uiStrings(language);
   const nextName = state.pending.length ? shortened(state.pending[0].text, 45) : (state.running ? t.running : t.ready);
   return Box({ flexDirection: 'row', columnGap: 2, children: [
-    node(Text, ` QM ${status(state, t)} `, { color: state.paused ? 'yellow' : 'cyan', bold: true }),
-    node(Text, `${state.pending.length} ${t.pending} | ${nextName}`, { wrap: 'truncate-end', dimColor: true }),
+    node(Text, `${state.pending.length} ${t.pending} · ${status(state, t)} · ${nextName}`, { wrap: 'truncate-end', dimColor: true }),
     openButton
   ] });
 }
 
+// Resolve an ID under the same queue mutex as the write. A stale drawing can
+// never reinterpret its old row number as a different task.
+async function actTask($, id, kind, value) {
+  try {
+    await change($, state => {
+      const at = state.pending.findIndex(task => task.id === id);
+      if (at < 0) throw new Error('Task already started or was removed; refresh the queue.');
+      if (kind === 'remove') return removeByIds(state, [id]);
+      if (kind === 'edit') return edit(state, at + 1, value);
+      const target = at + value;
+      if (target < 0 || target >= state.pending.length) return state;
+      return move(state, at + 1, target + 1);
+    });
+    redraw($);
+    return true;
+  } catch (error) { notify($, `QM error: ${error.message}`); return false; }
+}
+
 async function actGroup($, kind) {
-  const state = await load($);
+  const state = await readState($);
   const ids = state.pending.filter(task => selectedIds.has(task.id)).map(task => task.id);
   if (!ids.length) return notify($, 'QM: nothing selected');
   try {
@@ -442,10 +530,20 @@ async function actGroup($, kind) {
 }
 
 async function drawPane($, e) {
+  try { return await buildPane($, e); }
+  catch (error) {
+    const { Box, Text, Button } = $.ui.resolve(e);
+    return block(Box, [node(Text, `Queue Manager: ${String(error?.message ?? error)}`, { color: 'yellow' }),
+      button(Button, 'qm-close', language === 'tr' ? 'Kapat' : 'Close', () => act($, 'close'))]);
+  }
+}
+
+async function buildPane($, e) {
   const { Box, Text, Button, Input, Select } = $.ui.resolve(e);
+  const inline = e.component === 'AbovePrompt';
   const t = uiStrings(language);
-  const state = await load($);
-  const view = filteredPage(state.pending, searchText, page, MAX_PAGE);
+  const state = await readState($);
+  const view = filteredPage(state.pending, searchText, page, inline ? 4 : MAX_PAGE);
   page = view.page;
   for (const id of selectedIds) if (!state.pending.some(x => x.id === id)) selectedIds.delete(id);
   const selection = state.pending.filter(x => selectedIds.has(x.id));
@@ -469,7 +567,7 @@ async function drawPane($, e) {
     ? node(Text, `▶ ${t.active}: #${state.running.id} ${shortened(state.running.text, 115)}`, { color: 'green' })
     : node(Text, state.busy ? t.waiting : t.noActive, { dimColor: true });
 
-  const actionRow = Box({ flexDirection: 'row', columnGap: 1, children: [
+  const actionRow = Box({ flexDirection: 'row', flexWrap: 'wrap', columnGap: 1, children: [
     button(Button, 'qm-toggle', state.paused ? t.resume : t.pause,
       () => act($, state.paused ? 'resume' : 'pause')),
     button(Button, 'qm-undo', t.undo, () => act($, 'undo'), { disabled: !state.undo.length }),
@@ -501,7 +599,7 @@ async function drawPane($, e) {
     } catch { $.ui.toast(t.invalidRepeat); }
   }
   const pasteInput = Input
-    ? Input({ key: 'qm-add-tasks', label: t.add, rows: 3, value: bulkDraft,
+    ? Input({ key: 'qm-add-tasks', label: t.add, rows: inline ? 2 : 3, value: bulkDraft, autoFocus: true,
       placeholder: t.addHint, onInput: value => { bulkDraft = String(value ?? ''); },
       onSubmit: queuePasted })
     : node(Text, '/qm batch task 1 || task 2');
@@ -514,10 +612,11 @@ async function drawPane($, e) {
 
   const search = Input
     ? Input({ key: 'qm-search', label: t.search, value: searchText,
+      onSubmit: value => { searchText = String(value ?? ''); page = 0; redraw($); },
       onInput: value => { searchText = String(value ?? ''); page = 0; redraw($); } })
     : node(Text, `${t.search}: ${searchText}`);
 
-  const selectionRow = Box({ flexDirection: 'row', columnGap: 1, children: [
+  const selectionRow = Box({ flexDirection: 'row', flexWrap: 'wrap', columnGap: 1, children: [
     node(Text, `${selection.length} ${t.selectedCount}`, { color: 'cyan' }),
     button(Button, 'qm-select-page', t.selectAll, () => { view.rows.forEach(x => selectedIds.add(x.id)); groupRemoveArmed = false; redraw($); }),
     button(Button, 'qm-deselect', t.deselectAll, () => { selectedIds.clear(); groupRemoveArmed = false; redraw($); }),
@@ -536,17 +635,17 @@ async function drawPane($, e) {
         if (selectedIds.has(task.id)) selectedIds.delete(task.id); else selectedIds.add(task.id);
         groupRemoveArmed = false; redraw($);
       }, { plain: true }),
-      node(Text, `${task.position}. ${task.when !== 'always' ? `[if ${task.when}] ` : ''}${shortened(task.text, 92)}`, {
+      node(Text, `${task.position}. ${task.when !== 'always' ? `[if ${task.when}] ` : ''}${shortened(task.text, Math.max(16, (e.props?.bodyColumns || 116) - 24))}`, {
         color: activeEdit ? 'cyan' : undefined, bold: activeEdit, wrap: 'truncate-end'
       }),
       button(Button, `qm-edit-${task.id}`, t.select, () => {
         editId = task.id; editDraft = task.text; redraw($);
       }, { plain: true }),
-      button(Button, `qm-up-${task.id}`, '↑', () => act($, `mv ${task.position} ${task.position - 1}`),
+      button(Button, `qm-up-${task.id}`, '↑', () => actTask($, task.id, 'move', -1),
         { plain: true, disabled: task.position <= 1 }),
-      button(Button, `qm-down-${task.id}`, '↓', () => act($, `mv ${task.position} ${task.position + 1}`),
+      button(Button, `qm-down-${task.id}`, '↓', () => actTask($, task.id, 'move', 1),
         { plain: true, disabled: task.position >= state.pending.length }),
-      button(Button, `qm-rm-${task.id}`, '×', () => act($, `rm ${task.position}`), { plain: true })
+      button(Button, `qm-rm-${task.id}`, '×', () => actTask($, task.id, 'remove'), { plain: true })
     ] });
   });
 
@@ -558,18 +657,12 @@ async function drawPane($, e) {
         ...(Input ? [Input({ key: 'qm-edit-input', label: t.edit, value: editDraft,
           onInput: value => { editDraft = String(value ?? ''); },
           onSubmit: async value => {
-            const position = (await load($)).pending.findIndex(task => task.id === editId) + 1;
-            if (!position) return;
-            const result = await act($, `edit ${position} ${value}`);
-            if (!result.startsWith('QM error:')) { editId = null; editDraft = ''; }
+            if (await actTask($, editing.id, 'edit', value)) { editId = null; editDraft = ''; redraw($); }
           }
         })] : []),
         Box({ flexDirection: 'row', columnGap: 1, children: [
           button(Button, 'qm-save-edit', t.save, async () => {
-            const position = (await load($)).pending.findIndex(task => task.id === editId) + 1;
-            if (!position) return;
-            const result = await act($, `edit ${position} ${editDraft}`);
-            if (!result.startsWith('QM error:')) { editId = null; editDraft = ''; redraw($); }
+            if (await actTask($, editing.id, 'edit', editDraft)) { editId = null; editDraft = ''; redraw($); }
           }),
           button(Button, 'qm-cancel-edit', t.cancel, () => { editId = null; editDraft = ''; redraw($); })
         ] })
@@ -585,20 +678,23 @@ async function drawPane($, e) {
   const recent = state.done.length
     ? node(Text, `✓ ${t.done}: ${state.done.slice(0, 2).map(x => shortened(x.text, 45)).join(' · ')}`, { dimColor: true })
     : null;
-  const recover = state.running
+  const recover = state.running && state.recoverable
     ? button(Button, 'qm-recover', t.recover, () => act($, 'recover'), { plain: true })
     : null;
 
   return block(Box, [
-    Box({ flexDirection: 'row', columnGap: 2, children: [title, langControl] }), stats, contextLine, ...(pauseInfo ? [pauseInfo] : []), active, advancedActions,
-    node(Text, t.oneAtTime, { dimColor: true }), actionRow, ...(confirmNotice ? [confirmNotice] : []),
+    Box({ flexDirection: 'row', flexWrap: 'wrap', columnGap: 2, children: [title, langControl,
+      button(Button, 'qm-close', language === 'tr' ? 'Kapat' : 'Close', () => act($, 'close'), { plain: true }),
+      button(Button, 'qm-side', language === 'tr' ? 'Yan panel' : 'Side panel', () => act($, 'side'), { plain: true })] }),
+    stats, ...(pauseInfo ? [pauseInfo] : []), active, actionRow, ...(confirmNotice ? [confirmNotice] : []),
     pasteInput, button(Button, 'qm-add-action', t.addButton, () => queuePasted(bulkDraft)),
-    repeatInput, button(Button, 'qm-repeat-action', t.repeatButton, () => queueRepeated(repeatDraft)),
-    search, selectionRow,
+    ...(!inline || detailsOpen ? [repeatInput, button(Button, 'qm-repeat-action', t.repeatButton, () => queueRepeated(repeatDraft))] : []),
+    ...(state.pending.length ? [search, selectionRow] : []),
     ...(view.rows.length ? rows : [node(Text, state.pending.length ? t.noMatch : t.empty, { dimColor: true })]),
-    pages, editBox, ...(recent ? [recent] : []), ...recentOutcomes, ...(recover ? [recover] : []),
-    node(Text, t.help, { dimColor: true })
-  ]);
+    ...(view.totalPages > 1 ? [pages] : []), ...(editing ? [editBox] : []), ...(recover ? [recover] : []),
+    button(Button, 'qm-details', language === 'tr' ? (detailsOpen ? 'Ayrıntıları gizle' : 'Ayrıntılar') : (detailsOpen ? 'Hide details' : 'Details'), () => { detailsOpen = !detailsOpen; redraw($); }, { plain: true }),
+    ...(detailsOpen ? [contextLine, advancedActions, ...(recent ? [recent] : []), ...recentOutcomes, node(Text, t.help, { dimColor: true })] : [])
+  ], inline ? { rowGap: 0 } : {});
 }
 
 export function register(on) {
@@ -606,6 +702,8 @@ export function register(on) {
     // Register immediately, before any queue/session/store I/O. Other mods
     // (After, Porthole, Show Me) register first for the same reason.
     startupWarning = null;
+    managerOpen = false;
+    detailsOpen = false;
     try {
       await $.command.register({ name: 'qm', description: 'Queue Manager: run tasks one by one without steering',
         argumentHint: 'add | batch | repeat | verify | retry | timeout | context | if | history', immediate: true });
@@ -622,7 +720,7 @@ export function register(on) {
         web = null; webTimer = null; webRevision = 0; webAck = null; webHandledId = 0;
         cancelRetryTimer(); verificationRunning = false;
       }
-      const resumed = await load($);
+      const resumed = await readState($);
       if (resumed.recoverable) $.ui.toast('QM: previous in-flight task needs review. /qm recover (may repeat work).');
       try { language = (await $.store.get(PREFS_KEY)) === 'tr' ? 'tr' : 'en'; }
       catch (error) { logError($, error); }
@@ -632,15 +730,23 @@ export function register(on) {
   });
 
   on('turn.start', async ($, e, next) => {
-    if (e.agentId === undefined) await change($, state => ({ ...state, busy: true }));
+    if (e.agentId === undefined) {
+      activeTurnId = e.turnId ?? null;
+      await change($, state => ({ ...state, busy: true,
+        running: state.running && !state.running.turnId && !verificationRunning
+          ? { ...state.running, turnId: e.turnId } : state.running }));
+    }
     return next(e);
   });
 
   on('turn.complete', async ($, e, next) => {
     const result = await next(e);
     if (e.agentId !== undefined) return result;
+    if (e.turnId && activeTurnId === e.turnId) activeTurnId = null;
     if (verificationRunning) return result;
-    const state = await load($);
+    const state = await readState($);
+    const epoch = verificationEpoch;
+    const sessionId = cachedSessionId;
     const aborted = e.isAborted === true || (e.reason && e.reason !== 'answer');
     if (!state.running) {
       await change($, s => ({ ...s, busy: false }));
@@ -658,13 +764,16 @@ export function register(on) {
         try {
           outcome = await verifyAnswer($, state.running, e.answer ?? result?.text ?? '', state.config);
           detail = state.config.verify;
-        } finally { verificationRunning = false; }
+        } finally { if (epoch === verificationEpoch) verificationRunning = false; }
       }
     }
+    if (epoch !== verificationEpoch || sessionId !== await $.session.id()) return result;
     const usage = await readUsage($);
     const updated = await change($, (s, t) => {
       const sampled = usage ? recordContext(s, usage) : s;
-      return settleTurn(sampled, outcome, t, { durationMs, reason: detail });
+      if (s.running?.id !== state.running.id) return s;
+      const settled = settleTurn(sampled, outcome, t, { durationMs, reason: detail });
+      return activeTurnId ? { ...settled, busy: true } : settled;
     });
     if (web) await syncWebAction($);
     if (!updated.paused) scheduleNext($);
@@ -674,6 +783,12 @@ export function register(on) {
   });
 
   on('session.end', ($, e, next) => {
+    carryOver = e.reason === 'clear';
+    managerOpen = false;
+    detailsOpen = false;
+    activeTurnId = null;
+    verificationEpoch++;
+    verificationRunning = false;
     cancelRetryTimer();
     if (web) void stopWeb($);
     return next(e);

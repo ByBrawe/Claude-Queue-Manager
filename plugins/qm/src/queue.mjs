@@ -1,7 +1,7 @@
 // Pure, dependency-free queue state machine. Claude prompts are dispatched by the mod only.
 export const MAX_BATCH = 200;
 export const MAX_PENDING = 500;
-export const VERSION = 2;
+export const VERSION = 3;
 export const MAX_HISTORY = 250;
 const MAX_DONE = 20;
 const MAX_UNDO = 10;
@@ -38,7 +38,7 @@ export function initialState(sessionId, now = Date.now()) {
 
 export function normalizeState(raw, sessionId, now = Date.now()) {
   const state = initialState(sessionId, now);
-  if (!raw || typeof raw !== 'object' || ![1, VERSION].includes(raw.version)) return state;
+  if (!raw || typeof raw !== 'object' || ![1, 2, VERSION].includes(raw.version)) return state;
   const pending = Array.isArray(raw.pending) ? raw.pending.filter(validTask).slice(0, MAX_PENDING) : [];
   state.pending = pending.map(t => ({ ...t, when: whenOf(t), attempts: Math.max(0, Math.min(100, Number(t.attempts) || 0)) }));
   state.done = Array.isArray(raw.done) ? raw.done.filter(validTask).slice(0, MAX_DONE) : [];
@@ -48,7 +48,9 @@ export function normalizeState(raw, sessionId, now = Date.now()) {
   state.paused = raw.paused === true || Boolean(state.running); // A reloaded, in-flight task is never replayed automatically.
   state.recoverable = Boolean(state.running);
   state.busy = Boolean(state.running);
-  state.undo = Array.isArray(raw.undo) ? raw.undo.slice(0, MAX_UNDO) : [];
+  // Old snapshots did not retire started IDs. Their safety cannot be inferred
+  // from the bounded history, so migrate the work but discard old undo entries.
+  state.undo = raw.version === VERSION && Array.isArray(raw.undo) ? raw.undo.slice(0, MAX_UNDO) : [];
   state.config = normalizeConfig(raw.config);
   state.stats = { ...initialStats() };
   for (const key of STAT_KEYS) if (Number.isFinite(raw.stats?.[key]) && raw.stats[key] >= 0) state.stats[key] = raw.stats[key];
@@ -115,15 +117,21 @@ export function undo(state) {
 }
 function archive(state, record) {
   return { ...state, done: [record, ...state.done].slice(0, MAX_DONE),
-    history: [record, ...state.history].slice(0, MAX_HISTORY) };
+    history: [record, ...state.history].slice(0, MAX_HISTORY),
+    undo: retireUndo(state.undo, record.id) };
 }
-export const canStart = (state, now = Date.now()) => !state.paused && !state.busy && !state.running &&
+// A started/skipped ID must never reappear through an old edit snapshot,
+// even after the bounded outcome history has forgotten it.
+function retireUndo(entries, id) {
+  return entries.map(entry => ({ ...entry, pending: entry.pending.filter(task => task.id !== id) }));
+}
+export const canStart = (state, now = Date.now()) => !state.transferredTo && !state.paused && !state.busy && !state.running &&
   state.pending.length > 0 && !(state.pending[0].notBefore > now);
 
 // A conditional task is evaluated against the last EXECUTED task's result.
 // Skipped tasks do not replace that result, so adjacent success/failure branches work.
 export function claim(state, now = Date.now()) {
-  if (state.paused || state.busy || state.running) return { state, task: null };
+  if (state.paused || state.busy || state.running || state.transferredTo) return { state, task: null };
   let next = state;
   while (next.pending.length) {
     const [candidate, ...rest] = next.pending;
@@ -135,7 +143,8 @@ export function claim(state, now = Date.now()) {
     if (candidate.notBefore > now) return { state: next, task: null, waitMs: candidate.notBefore - now };
     const running = { ...candidate, attempts: (candidate.attempts || 0) + 1, startedAt: now,
       contextAtStart: next.context ? { ...next.context } : null };
-    next = { ...next, pending: rest, running, busy: true, updatedAt: now, recoverable: false };
+    next = { ...next, pending: rest, running, busy: true, updatedAt: now, recoverable: false,
+      undo: retireUndo(next.undo, running.id) };
     return { state: next, task: running };
   }
   return { state: { ...next, updatedAt: now }, task: null };
@@ -155,7 +164,7 @@ export function settleTurn(state, outcome, now = Date.now(), details = {}) {
   if (['failure','timeout'].includes(status) && running.attempts <= state.config.retries) {
     const { startedAt, contextAtStart, ...task } = running;
     return { ...base, pending: [{ ...task, notBefore: now + state.config.retryDelayMs }, ...state.pending],
-      stats: { ...state.stats, retried: state.stats.retried + 1 }, pauseReason: null };
+      stats: { ...state.stats, retried: state.stats.retried + 1 }, pauseReason: state.paused ? state.pauseReason : null };
   }
   const record = { ...running, status, durationMs, finishedAt: now,
     reason: typeof details.reason === 'string' ? details.reason.slice(0, 300) : null,
@@ -163,6 +172,7 @@ export function settleTurn(state, outcome, now = Date.now(), details = {}) {
   const stats = { ...state.stats, [status]: state.stats[status] + 1,
     durationMs: state.stats.durationMs + durationMs };
   const resolved = archive({ ...base, stats, lastOutcome: status === 'success' ? 'success' : status === 'unknown' ? 'unknown' : 'failure' }, record);
+  if (state.paused) return { ...resolved, paused: true, pauseReason: state.pauseReason };
   if (status === 'success') return { ...resolved, pauseReason: null };
   return { ...resolved, paused: status === 'unknown' || state.config.onFail === 'pause',
     pauseReason: status === 'unknown' ? 'verify-unknown' : state.config.onFail === 'pause' ? status : null };
@@ -206,6 +216,7 @@ export function rejectSubmission(state, taskId) {
 }
 export function recover(state) {
   if (!state.running) throw new Error('No in-flight task to recover');
+  if (!state.recoverable) throw new Error('Task is still live. Recover is only for an orphaned task after restarting its session.');
   const { startedAt, contextAtStart, notBefore, ...task } = state.running;
   return { ...state, running: null, busy: false, recoverable: false, paused: true,
     pauseReason: 'recovered-needs-review', pending: [task, ...state.pending] };

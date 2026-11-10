@@ -118,7 +118,12 @@ export function createDashboard({ token = randomBytes(32).toString('hex'), port 
           running: body.state.running ?? null,
           done: body.state.done ?? [],
           paused: Boolean(body.state.paused),
-          busy: Boolean(body.state.busy)
+          busy: Boolean(body.state.busy),
+          stats: body.state.stats ?? null,
+          context: body.state.context ?? null,
+          config: body.state.config ?? null,
+          pauseReason: body.state.pauseReason ?? null,
+          history: Array.isArray(body.state.history) ? body.state.history.slice(0, 12) : []
         };
         lastModContact = Date.now();
         if (waitingAction && body.ack?.id === waitingAction.id) {

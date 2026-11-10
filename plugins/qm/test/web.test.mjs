@@ -49,7 +49,9 @@ test('browser dashboard enforces token, loopback host, origin, revision, operati
   assert.equal(homepage.status,200);
   assert.match(homepage.headers.get('content-security-policy'),/default-src 'none'/);
   assert.match(await homepage.text(),/Queue Manager/);
-  const initial = {pending:[{id:1,text:'A'},{id:2,text:'B'}],done:[],running:null,paused:true,busy:false};
+  const initial = {pending:[{id:1,text:'A'},{id:2,text:'B'}],done:[],running:null,paused:true,busy:false,
+    stats:{success:5},context:{tokens:1000,window:2000,percent:50},history:[{id:3,text:'completed',status:'success'}],
+    config:{verify:'marker'},pauseReason:'user'};
   assert.equal((await fetch(api(port,'state'),options('POST',{revision:1,state:initial}))).status,200);
   assert.equal((await fetch(api(port,'action'),options('POST',{
     revision:0,operation:{type:'reorder',ids:[2,1]}
@@ -70,6 +72,11 @@ test('browser dashboard enforces token, loopback host, origin, revision, operati
   assert.equal(acknowledged.status,200);
   const current = await (await fetch(api(port,'state'),options())).json();
   assert.deepEqual(current.state.pending.map(x=>x.id),[2,1]);
+  assert.deepEqual(current.state.stats, initial.stats);
+  assert.deepEqual(current.state.context, initial.context);
+  assert.deepEqual(current.state.history, initial.history);
+  assert.deepEqual(current.state.config, initial.config);
+  assert.equal(current.state.pauseReason,'user');
   assert.equal(current.waiting,false);
   assert.equal(current.lastAck.id,action.id);
   assert.equal((await fetch(api(port,'state'),options('POST',{revision:1,state:initial}))).status,400);

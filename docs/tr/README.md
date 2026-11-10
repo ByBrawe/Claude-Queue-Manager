@@ -1,3 +1,12 @@
+## 0.4.3: mesaj kutusunun üstünde yönetim
+
+- /qm yönetimi mesaj kutusunun üstünde açar. /qm close kapatır. Kuyruk boşken kalıcı QM şeridi görünmez. Ayrıntılar düğmesi tekrar girişi ve istatistikleri açar.
+- /qm side isteğe bağlı yan paneli açar; yerleşimi Claude belirler. /qm inline mesaj kutusuna döner.
+- Silme, düzenleme ve sıralama satır numarası yerine görev kimliğini kullanır. Undo tamamlanmış işleri geri getirmez. Pause hata sonrasında da korunur; recover yalnızca yeniden açılmış oturumda sahipsiz kalmış görevi kurtarır.
+- /clear bekleyen işleri yeni oturuma duraklatılmış olarak taşır. Kaynak kopya yeniden çalıştırılamaz; kesilen taşımanın kurtarılması için saklanır.
+- 200/500 görev ve görev başına 20.000 karakter sınırlarına ek olarak kuyruk başına 2.800 KiB ve tüm eklenti için 4 MiB depolama sınırı uygulanır. Önce eski undo/geçmiş budanabilir; bekleyen/çalışan iş silinmez. Sığmayan ekleme mevcut kuyruğu değiştirmeden reddedilir.
+- Restore ve web için yerel Node.js 20+ gerekir; normal kuyruk arayüzünde gerekmez. Restore, ayrı Claude işlemlerinin aynı kaynağı almasını dosya kilidiyle engeller. Önce kaynak oturumu kapat. Çökme sonrası eski kilit kalırsa hata dosya yolunu gösterir; iki kuyruğu inceleyip ilgili oturumları kapattıktan sonra eski kilidi elle kaldır. Kilit otomatik ele geçirilmez.
+
 # Claude Queue Manager (QM) — Kullanım rehberi
 
 [🌐 Turkish / Türkçe](../languages/README.md) · [GitHub](https://github.com/ByBrawe/Claude-Queue-Manager) · [MIT](../../LICENSE)
