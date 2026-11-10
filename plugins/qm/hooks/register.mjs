@@ -154,9 +154,6 @@ async function startWeb($) {
     await sendWebSnapshot($);
     return 'QM: web dashboard is already running. Private link remains in your clipboard.';
   }
-  if (!$.plugin?.root || !$.process?.run || !$.http?.fetch) {
-    throw new Error('Local Desktop/CLI Mods host with process and HTTP access required');
-  }
   const root = $.plugin.root;
   const script = `${root}/web/server.mjs`;
   const token = Array.from(crypto.getRandomValues(new Uint8Array(24)), x => x.toString(16).padStart(2, '0')).join('');
@@ -207,7 +204,6 @@ function logError($, err) {
 
 // A failed usage read is never converted into a made-up token estimate.
 async function readUsage($) {
-  if (!$.session?.usage) return null;
   try { return await $.session.usage(); }
   catch (error) { logError($, error); return null; }
 }
@@ -233,7 +229,7 @@ function scheduleNext($) {
     });
   })().then(result => {
     if (result.task) { void submitOne($, result.task); return; }
-    if (result.waitMs > 0 && $.clock?.after) {
+    if (result.waitMs > 0) {
       retryTimer = $.clock.after(result.waitMs, () => { retryTimer = null; scheduleNext($); });
     }
   }).catch(error => logError($, error));
@@ -259,7 +255,7 @@ async function verifyAnswer($, task, answer, config) {
   if (config.verify === 'off') return 'success';
   if (config.verify === 'marker') return verdictFromText(answer);
   if (config.verify === 'ai') {
-    if (!$.model?.complete || !String(answer || '').trim()) return 'unknown';
+    if (!String(answer || '').trim()) return 'unknown';
     const question = buildVerificationPrompt(task.text, answer);
     try {
       const result = await $.model.complete({
@@ -281,8 +277,9 @@ function formatHistory(state, count = 15) {
 }
 
 async function listSessions($) {
-  if (!$.store?.keys) return 'QM: session listing unavailable in this host';
-  const keys = (await $.store.keys()).filter(k => k.startsWith(STORE_PREFIX));
+  let keys;
+  try { keys = (await $.store.keys()).filter(k => k.startsWith(STORE_PREFIX)); }
+  catch (error) { logError($, error); return 'QM: session listing unavailable in this host'; }
   const sessions = await Promise.all(keys.map(async key => {
     const data = await $.store.get(key);
     return { id: key.slice(STORE_PREFIX.length), data };

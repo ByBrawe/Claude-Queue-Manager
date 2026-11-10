@@ -33,6 +33,17 @@ claude plugin install qm@claude-queue-manager
 
 3. Restart the local Claude Desktop **Code** session. The archive contains the marketplace manifest and plugin sources, not a standalone app. No API key or npm install is needed.
 
+## Mod loading fix (v0.4.2)
+
+v0.4.0–v0.4.1 contain API capability checks that Claude Code's hooks-module validator rejects, preventing both the /qm command and QM button from loading. Update the marketplace and plugin, then reload the session:
+
+```sh
+claude plugin marketplace update claude-queue-manager
+claude plugin update qm@claude-queue-manager
+```
+
+Run `/reload-plugins` in each open Code session, or start a new session. Verify with `claude plugin validate ./plugins/qm` when working from source.
+
 ## Desktop slash-command workaround (v0.4.1)
 
 Claude Desktop has a [known issue with commands dynamically registered by mods](https://github.com/anthropics/claude-code/issues/99691): `/qm` may show **"isn't a command here"** even when the plugin is installed. **QM v0.4.1 registers `/qm` at the very start of `session.start`**, exposes registration failures via a visible toast and log, and **always renders a small `QM` button above the Code prompt**, including when the queue is empty. Click this button to open the real queue panel **without asking Claude/the model**. The button requires the mod to load and the host to render the `AbovePrompt` surface; it cannot fix a mod that the Desktop app never loaded.

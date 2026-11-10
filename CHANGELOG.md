@@ -1,3 +1,11 @@
+## 0.4.2 — Fix mod loading
+
+- Remove Mods API namespace/method capability probes rejected by Claude Code's static module validator.
+- Keep direct API calls and conservative error handling for unavailable context usage, AI verification, and saved-session listing.
+- Preserve plugin-root metadata access for the optional web dashboard.
+- Validate the actual hooks module in CI, in addition to the mocked-host tests.
+- Validated with Claude Code 2.1.322; all 42 existing tests pass.
+
 ## 0.4.1 — Desktop command discovery workaround
 
 - Register `/qm` before reading session identity, queue store, or preferences.
