@@ -1,110 +1,163 @@
-## 0.6.0 — 20 interface languages / 20 arayüz dili
-
-The 20 documentation languages are now available in the native panel, CLI language command and web dashboard: en, tr, de, fr, es, it, pt-BR, ru, uk, pl, nl, sv, ja, ko, zh-CN, ar, hi, id, vi, fa. Use the header selector or `/qm lang de`, `/qm lang pt-BR`, `/qm lang zh-CN`. Native preferences survive a restart; browser preferences are saved per dashboard origin. Web Arabic and Persian use right-to-left layout. Command names, task content and host-provided diagnostic text are not translated.
-
-README’deki 20 dil artık gerçek arayüz seçeneğidir. Üstteki dil seçicisini veya `/qm lang <kod>` komutunu kullan. Ek diller kısa, yerelleştirilmiş arayüz metinleri kullanır; İngilizceye sessizce dönmez. Önceki 0.5.1 dil görünürlüğü düzeltmesi bu sürüme dahildir.
-
-## 0.5.0 — Desktop, CLI ve web arayüzü
-
-- Mesaj kutusu üstünde kompakt görünüm; Ayrıntılar ile görev işlemleri ve ileri bilgiler. Dar yan panelde tek sütun, tam genişlikte girişler; ayrı tekrar adedi ve mesajı.
-- Bekleyen/çalışan/tamamlanan sayıları, belirgin Duraklat/Devam kontrolü, tekli ve toplu silmede onay, geri alma. TUI: Tab/Shift+Tab ile odak, Enter ile seçme, p ile duraklat/devam, q ile kapatma. Komut adları İngilizce kalır; /qm lang tr arayüzü ve yardım açıklamalarını Türkçeleştirir.
-- Web: koyu mavi tema, oturum kimliği, iki sütun/tek sütun uyarlama, görev satırları ve sürükleme, çoklu seçim, ayrı tekrar girişi, kapalı geçmiş/istatistikler. Bağlantı kesilirse taslak korunur ve otomatik yeniden bağlanılır. Başarı yalnızca modun kayıt onayından sonra gösterilir.
-
-### Claude kendi listesini oluşturabilir
-
-Resmi **mcp__qm__queue** aracıyla Claude aynı oturumun kuyruğunu okuyabilir, görev ekleyebilir, bekleyen kimlikleri sıralayabilir/silebilir ve kuyruğu duraklatıp devam ettirebilir. Örnek istek: "Proje için inceleme, düzeltme, test ve özet görevlerinden kuyruk oluştur. Önce duraklat; ben onayladıktan sonra devam ettir."
-
-Araç örnekleri: {"action":"list"}, {"action":"pause"}, {"action":"add","tasks":["Kodu incele","Testleri çalıştır"]}, {"action":"reorder","ids":[2,1]}, {"action":"remove","ids":[2]}, {"action":"resume"}. Sıralama tüm bekleyen kimlikleri bir kez içermelidir. Aktif görev değiştirilemez. Aktif tur sırasında eklenen işler mevcut tura gönderilmez. Araç kullanıldığında Claude bekleyen görev metinlerini bilinçli olarak okuyabilir; normal /qm komutlarının argüman gizleme davranışı korunur. Kuyruk yönetimi isteklerini tekrar tekrar kuyruğa ekletme.
-
-### Bağlam verisi
-
-Eski görünüm açılırken ölçüm yapmıyordu. Yeni native görünüm ve web snapshot resmi $.session.usage() API'sini sorgular. Host sayısal token/pencere döndürmezse neden veri gösterilemediği açıklanır; sahte değer üretilmez. Gateway/API ayarları değiştirilmez. Son kaydedilmiş ölçüm varsa korunabilir. Host hataları Claude debug günlüğüne yazılır. Özel gateway'in her durumda kullanım verisi sağlayacağı garanti edilmez.
-
-## 0.4.3: mesaj kutusunun üstünde yönetim
-
-- /qm yönetimi mesaj kutusunun üstünde açar. /qm close kapatır. Kuyruk boşken kalıcı QM şeridi görünmez. Ayrıntılar düğmesi tekrar girişi ve istatistikleri açar.
-- /qm side isteğe bağlı yan paneli açar; yerleşimi Claude belirler. /qm inline mesaj kutusuna döner.
-- Silme, düzenleme ve sıralama satır numarası yerine görev kimliğini kullanır. Undo tamamlanmış işleri geri getirmez. Pause hata sonrasında da korunur; recover yalnızca yeniden açılmış oturumda sahipsiz kalmış görevi kurtarır.
-- /clear bekleyen işleri yeni oturuma duraklatılmış olarak taşır. Kaynak kopya yeniden çalıştırılamaz; kesilen taşımanın kurtarılması için saklanır.
-- 200/500 görev ve görev başına 20.000 karakter sınırlarına ek olarak kuyruk başına 2.800 KiB ve tüm eklenti için 4 MiB depolama sınırı uygulanır. Önce eski undo/geçmiş budanabilir; bekleyen/çalışan iş silinmez. Sığmayan ekleme mevcut kuyruğu değiştirmeden reddedilir.
-- Restore ve web için yerel Node.js 20+ gerekir; normal kuyruk arayüzünde gerekmez. Restore, ayrı Claude işlemlerinin aynı kaynağı almasını dosya kilidiyle engeller. Önce kaynak oturumu kapat. Çökme sonrası eski kilit kalırsa hata dosya yolunu gösterir; iki kuyruğu inceleyip ilgili oturumları kapattıktan sonra eski kilidi elle kaldır. Kilit otomatik ele geçirilmez.
-
 # Claude Queue Manager (QM) — Kullanım rehberi
 
-[🌐 Turkish / Türkçe](../languages/README.md) · [GitHub](https://github.com/ByBrawe/Claude-Queue-Manager) · [MIT](../../LICENSE)
+[Proje ana sayfası](../../README.md) · [20 dil seçeneği](../languages/README.md) · [English](../en/README.md) · [MIT](../../LICENSE)
 
-QM, Claude Desktop uygulamasındaki **Code** sekmesinde veya Claude Code terminalinde görevleri kuyruğa alır. Bir görev tamamlandıktan sonra sıradaki görevi **ayrı bir tur** olarak başlatır; devam eden işi yönlendirmez (steer yapmaz).
-
-## “Devam et” ne demek?
-
-`devam et` bir QM komutu değil, Claude'a gönderilecek **normal görev metnidir**. Görevleri Türkçe, İngilizce veya başka dillerde yazabilirsin. `/qm repeat 5 devam et`, `devam et` mesajını beş ayrı tur için sıraya koyar; çeviri yapmaz.
-
-```text
-/qm repeat 5 devam et
-```
+QM, **Claude Desktop → Code** veya **Claude Code CLI** içinde görevleri sıraya alır. Her görevi ayrı bir turda, tek tek başlatır. Native panel, terminal ve yerel web paneli aynı oturumun kuyruğunu yönetir.
 
 ## Kurulum
 
-Claude Code içinde aşağıdaki iki komutu çalıştır. Ardından Claude Desktop **Code** bölümünde yeni bir yerel oturum aç veya destekleniyorsa `/reload-plugins` kullan. Normal Claude Chat sekmesinde bu eklenti çalışmaz.
+Mods API desteği bulunan yerel bir Claude Code ortamı gerekir. Normal Claude Chat sekmesi, uzak/bulut oturumları ve Desktop WSL oturumları desteklenmez.
+
+Claude Code içinde çalıştır:
 
 ```text
 /plugin marketplace add ByBrawe/Claude-Queue-Manager
 /plugin install qm@claude-queue-manager
 ```
 
-## Güvenli başlangıç
+Yeni bir yerel Code oturumu aç veya `/reload-plugins` çalıştır; ardından `/qm` yaz. Başka bir kuyruk eklentisi kullanıyorsan aynı anda çalıştırma.
 
-Önce kuyruğu duraklat, görevleri topluca ekle, `/qm` panelinden sırayı kontrol et ve sonra devam ettir. Her tamamlanan ana turdan sonra yalnızca bir yeni görev başlatılır.
+Güncellemek için terminalde:
 
-```text
-/qm pause
-/qm batch Başarısız testleri düzelt || Derlemeyi çalıştır || Değişiklikleri özetle
-/qm
-/qm resume
+```sh
+claude plugin marketplace update claude-queue-manager
+claude plugin update qm@claude-queue-manager
 ```
 
-## Etkileşimli UI / TUI
+Aktif görev bittikten sonra açık oturumlarda eklentileri yeniden yükle veya uygulamayı yeniden başlat. QM mevcut Gateway/API bağlantısını kullanır; yapılandırmasını değiştirmez.
 
-Claude Desktop **Code** sekmesinde veya Claude Code terminalinde **`/qm`** yazınca panel açılır. Toplu görev yapıştırma, `5 | devam et` tekrar alanı, arama, 12 satırlık sayfalama, görev düzenleme, yukarı/aşağı taşıma ve iki aşamalı silme onayı vardır.
+### ZIP ile kurulum
 
-Panel dili: **Türkçe / English** açılır menüsünden veya `/qm lang tr` ve `/qm lang en` komutlarıyla seçilir. Rehberler 20 dilde olsa da panel arayüzü şimdilik iki dildedir. Sürüm uyumluluğu için gerçek Desktop üzerinde iki kısa görevle test et.
-
-## Komut rehberi
-
-| Komut | Komut rehberi |
-| --- | --- |
-| `/qm` | Kuyruk panelini aç |
-| `/qm add devam et` | Tek görev ekle |
-| `/qm repeat 5 devam et` | Aynı görevi 1–200 kez ekle |
-| `/qm batch A \|\| B \|\| C` | Farklı görevleri belirtilen sırayla ekle |
-| `/qm front devam et` | Görevi sıranın başına al |
-| `/qm pause  /qm resume` | Otomatik çalışmayı duraklat / devam ettir |
-| `/qm mv 3 1` | Bekleyen 3. görevi 1. sıraya taşı |
-| `/qm edit 2 devam et` | Bekleyen 2. görevin metnini değiştir |
-| `/qm rm 2` | Bekleyen 2. görevi kaldır |
-| `/qm undo` | Son kuyruk düzenlemesini geri al |
-| `/qm clear` | Yalnızca bekleyen görevleri sil |
-| `/qm recover` | Çökme sonrası askıda kalan görevi geri alıp kuyruğu duraklat |
-| `/qm help` | Yardımı göster |
-
-## Sınırlar ve dikkat edilmesi gerekenler
-
-Tek seferde en fazla **200 görev**, toplamda en fazla **500 bekleyen görev** eklenebilir. Her görev model kotası ve context tüketebilir; 200K context olsa bile her yeni tur temiz bağlamla başlamaz. Hedefi ve bitiş koşulu belirsizken yüzlerce kez `devam et` göndermek gereksiz işlem üretebilir. Claude'un yanıt vermesi, işin mutlaka başarıyla tamamlandığı anlamına gelmez.
-
-## Sorun giderme
-
-`/qm` görünmüyorsa eklentinin etkin olduğunu kontrol et ve yerel **Code** oturumunu yeniden aç. Aynı anda başka queue eklentisini etkinleştirme. Panel deneysel; önce iki kısa görevle dene. ZIP kurulumu aşağıda.
-
-### ZIP
-
-ZIP arşivini aç, çıkartılan `Claude-Queue-Manager` klasörünü sabit bir konumda tut ve terminalde şunları çalıştır:
+Arşivi sabit bir klasöre çıkar ve kök klasörü ekle:
 
 ```sh
 claude plugin marketplace add /absolute/path/to/Claude-Queue-Manager
 claude plugin install qm@claude-queue-manager
 ```
 
-> Not: Bu sayfa bir çeviri rehberidir; QM panelinin kendisini yerelleştirmez.
+Kökte `.claude-plugin/marketplace.json` ve `plugins/qm` bulunmalıdır. Native kuyruk için Node.js gerekmez; web paneli ve oturumlar arası geri yükleme için PATH üzerinde **Node.js 20+** gerekir.
 
-0.5.0 doğrulaması: 55 Node testi, 7 resmi Claude host testi geçti. Playwright ile 24 boyut/dil/görev senaryosu ve 6 etkileşim kontrolü geçti. Bu sürümde kurulu Desktop uygulamasında canlı piksel kontrolü yapılmadı; host testleri bileşen protokolünü doğrular. Kısayollar mod yüzeyi odaktayken çalışır; normal mesaj yazarken genel kısayol değildir.
+## Hızlı başlangıç
+
+Önce duraklatıp listeyi inceleyebilirsin:
+
+```text
+/qm pause
+/qm batch Projeyi incele || Başarısız testleri düzelt || Derlemeyi çalıştır || Sonucu özetle
+/qm
+/qm resume
+```
+
+Kuyruk duraklatılmamışsa Claude boştayken ilk görev hemen başlayabilir. **Duraklat**, sonraki görevin başlamasını engeller; çalışan turun bitmesine izin verir. Tur kesilir veya host/API hatası oluşursa çalışan görev bekleyenlere döner ve kuyruk duraklar.
+
+## Prompt üstündeki tam panel
+
+`/qm`, `/qm inline` veya özet çubuğundaki **Genişlet**, tam paneli prompt yazma alanının üstünde açar. Şu kontroller birlikte görünür:
+
+- Dil, Duraklat/Devam, Geri al, Bekleyenleri sil ve Web.
+- Çok satırlı görev girişi ve Kuyruğa ekle.
+- Ayrı **Adet + Mesaj + Tekrarla** alanı.
+- Bekleyen görevlerde arama, seçim, düzenleme, taşıma ve onaylı silme.
+
+**Ayrıntılar** yalnızca bağlam, geçmiş, istatistikler ve oturum bilgilerini açıp kapatır. Temel kuyruk kontrollerini gizlemez. **Yan panel** ayrı native paneli açar; konumunu ve boyutunu Claude host belirler. **Web**, tarayıcıyı açar. **Kapat**, tam paneli kapatır; bekleyen veya çalışan iş varsa özet çubuğu kalır.
+
+Prompt üstünde sayfa başına **4**, yan panelde **12** görev gösterilir. Çalışan görev yeşil, duraklatılmış kuyruk sarıdır; durum metinle de belirtilir. Tab/Shift+Tab ile odaklanıp Enter ile seçebilirsin. `p` ve `q` kısayolları mod yüzeyi odaktayken çalışır; normal prompt yazarken uygulanmaz.
+
+## 5 veya 20 tekrar ekleme
+
+**Adet** alanına 5 ya da 20, **Mesaj** alanına gönderilecek görevi yaz ve **Tekrarla** düğmesine bas. Aynı işlemin komut karşılığı:
+
+```text
+/qm repeat 5 Sıradaki tamamlanmamış işe devam et
+/qm repeat 20 Kararlaştırılan planın sonraki adımını uygula
+```
+
+`devam et` özel bir QM komutu değildir; Claude'a gönderilecek normal mesajdır. Tek seferde 1–200 tekrar eklenebilir. Her tekrar ayrı görevdir; model kotası ve oturum bağlamı tüketir. Farklı görevler için her satıra bir görev yaz veya `||` ile ayır.
+
+## 20 dil seçeneği
+
+[20 dilin tamamı ve kodları](../languages/README.md) hem rehber hem arayüz seçeneği olarak bulunur. Native panelin üstündeki dil menüsünü veya şu komutları kullan:
+
+```text
+/qm lang tr
+/qm lang en
+/qm lang de
+/qm lang pt-BR
+/qm lang zh-CN
+```
+
+Native/CLI tercihi yeniden başlatmada korunur. Web panelinin kendi dil menüsü ve tarayıcıda saklanan tercihi vardır. İlk kullanım dili Türkçedir; kaydedilmiş tercih korunur. Arapça ve Farsça web görünümünde sağdan sola düzen kullanır. Komut adları, görev metinleri ve host kaynaklı tanılama mesajları çevrilmez.
+
+## Yerel web paneli
+
+`/qm web`, `127.0.0.1` üzerinde yerel sunucu açar, tarayıcıyı başlatmayı dener ve pano erişilebiliyorsa özel bağlantıyı kopyalar. Sayfayı kapatırsan aynı komutla yeniden açabilirsin. `/qm web stop` sunucuyu kapatır.
+
+- Sürükleme tutamacıyla yalnızca bekleyen görevleri sırala; seçili grubu birlikte taşı.
+- Çoklu seçimle üste/alta taşı veya onaylayarak sil.
+- Sürüklemeden önce arama filtresini temizle.
+- Bağlantı kesilirse taslak korunur ve yeniden bağlanma denenir. Başarı mesajı yalnızca mod işlemi kaydettikten sonra gösterilir.
+- Eşzamanlı değişiklikte eski bir düzenleme yanlış göreve uygulanmak yerine reddedilir.
+
+Web ve Desktop aynı oturumun kuyruğunu gösterir. Bağlantıdaki token özeldir; paylaşma. Panel ayrı bir bulut servisine bağlanmaz. Bağlantı sorunu kalırsa aynı oturumda `/qm web stop`, ardından `/qm web` çalıştır.
+
+## Claude kendi listesini oluşturabilir
+
+QM, resmi **`mcp__qm__queue`** aracını kaydeder. Örnek istek:
+
+> Proje için inceleme, düzeltme, test ve özet görevlerinden bir kuyruk oluştur. Önce duraklat; listeyi inceleyeyim.
+
+Claude kuyruğu listeleyebilir, görev ekleyebilir, bekleyen kimlikleri sıralayıp silebilir ve duraklatıp devam ettirebilir. Çalışan görev değiştirilemez. Yeniden sıralama tüm bekleyen kimliklerini birer kez içermelidir. Host araç izinleri geçerlidir.
+
+Normal `/qm` komut argümanları modelin okuyacağı komut kaydından çıkarılır. Claude'dan kuyruğu aracıyla yönetmesini istediğinde bekleyen görev metinlerini okuyabilir. Kuyruğun içine tekrar kuyruk yönetimi yaptıran döngüsel görevler ekleme.
+
+## Komut rehberi
+
+| Komut | İşlev |
+| --- | --- |
+| `/qm`, `/qm inline`, `/qm list` | Prompt üstünde yöneticiyi aç |
+| `/qm side`, `/qm close` | Yan paneli aç / yöneticiyi kapat |
+| `/qm add <görev>`, `/qm front <görev>` | Sona / başa görev ekle |
+| `/qm batch A \|\| B \|\| C` | Farklı görevleri sırayla ekle |
+| `/qm repeat 5 <mesaj>` | Aynı mesajı 5 kez ekle |
+| `/qm pause`, `/qm resume` | Sonraki görevi beklet / devam ettir |
+| `/qm edit 2 <metin>`, `/qm rm 2`, `/qm mv 3 1` | Bekleyen görev düzenle, sil, taşı |
+| `/qm clear`, `/qm undo` | Bekleyenleri sil / kuyruk düzenlemesini geri al |
+| `/qm lang tr` | Arayüz dilini seç |
+| `/qm web`, `/qm web stop` | Web panelini aç veya yeniden aç / sunucuyu durdur |
+| `/qm verify off\|marker\|ai [haiku]` | Doğrulamayı seç; AI ek model çağrısı kullanır |
+| `/qm retry 2 5s`, `/qm retry last` | Sınırlı tekrar denemesini ayarla / son başarısız veya belirsiz görevi ekle |
+| `/qm timeout 10m\|off` | Tur bittikten sonra süreyi değerlendir; turu zorla kesmez |
+| `/qm context`, `/qm context 85\|off` | Host bağlam verisini oku / başlatma eşiği ayarla |
+| `/qm if success <görev>`, `/qm if failure <görev>` | Koşullu görev ekle |
+| `/qm onfail pause\|continue` | Başarısızlıkta duraklat / devam et |
+| `/qm history [1-50]`, `/qm stats`, `/qm settings` | Geçmiş, istatistik ve ayarları göster |
+| `/qm sessions`, `/qm restore SESSION_ID [recover]` | Oturumları listele / duraklatılmış kuyruğu boş oturuma aktar |
+| `/qm recover` | Askıda kalmış görevi geri al ve duraklat |
+| `/qm help` | Yardımı göster |
+
+## Sınırlar ve davranış
+
+En fazla **200 görev/ekleme**, **500 bekleyen görev**, görev başına **20.000 karakter** desteklenir. Kuyruk kayıt bütçesi **2.800 KiB**, hostun paylaşılan eklenti depolaması **4 MiB**'dır. Sığmayan ekleme mevcut bekleyen/çalışan işi silmeden reddedilir.
+
+Turun bitmesi görevin başarıyla tamamlandığını kanıtlamaz. Marker doğrulaması modelin kendi bildirimidir; AI doğrulaması son yanıtı inceler ve belirsiz sonuç verebilir. Belirsiz sonuç otomatik tekrarlamak yerine duraklatır. Tekrar deneme aynı yan etkileri yeniden çalıştırabilir.
+
+Bağlam değerleri resmi host kullanım verisinden alınır; erişilemiyorsa sahte değer üretilmez. Son kaydedilmiş okuma görünebilir. Bağlam eşiği oturumu kendiliğinden temizlemez veya sıkıştırmaz.
+
+Oturum kurtarmada görevin daha önce tamamlanıp tamamlanmadığını kontrol et. Oturumlar arası aktarım için kaynak duraklatılmış, hedef boş olmalı; kaynak oturumu kapat. `recover` seçeneği olası tekrar çalıştırmayı açıkça kabul eder. QM, Claude'un Ctrl+Enter kuyruğunu değiştirmez.
+
+[Ayrıntılı otomasyon rehberi](FEATURES-0.4.md) · [Sürüm geçmişi](../../CHANGELOG.md)
+
+## Geliştirme ve doğrulama
+
+```sh
+npm run verify
+npm run validate:mod
+npm run test:host
+```
+
+Resmi host testleri dar ve geniş terminal/Desktop eleman protokolünü doğrular; kurulu Desktop uygulamasının son piksel görünümünü doğrulamaz. İsteğe bağlı Playwright kontrolü için ayrı bir QA ortamında `node scripts/ui-smoke.mjs` çalıştırılabilir. Gerekirse `QM_PLAYWRIGHT_MODULE` tanımlanır; görseller `artifacts/` altına yazılır.
+
+## Lisans
+
+[MIT](../../LICENSE) · © 2026 ByBrawe.
 

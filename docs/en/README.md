@@ -1,111 +1,185 @@
-## 0.6.0 — 20 interface languages / 20 arayüz dili
-
-The 20 documentation languages are now available in the native panel, CLI language command and web dashboard: en, tr, de, fr, es, it, pt-BR, ru, uk, pl, nl, sv, ja, ko, zh-CN, ar, hi, id, vi, fa. Use the header selector or `/qm lang de`, `/qm lang pt-BR`, `/qm lang zh-CN`. Native preferences survive a restart; browser preferences are saved per dashboard origin. Web Arabic and Persian use right-to-left layout. Command names, task content and host-provided diagnostic text are not translated.
-
-README’deki 20 dil artık gerçek arayüz seçeneğidir. Üstteki dil seçicisini veya `/qm lang <kod>` komutunu kullan. Ek diller kısa, yerelleştirilmiş arayüz metinleri kullanır; İngilizceye sessizce dönmez. Önceki 0.5.1 dil görünürlüğü düzeltmesi bu sürüme dahildir.
-
-## 0.5.0 — Native, CLI and web workspace
-
-The queue engine and gateway configuration are preserved. The native manager now adapts to the available width, separates repeat count/message, confirms individual deletion, and provides keyboard focus and p/q shortcuts. The inline view stays compact; Details expands pending operations and advanced telemetry. Task fields use supported Box/Input components at full width.
-
-The dark web workspace has a compact header with the bound session ID, explicit pause/add behavior, responsive queue/composer layout, separate repeat count/message, and collapsed history/analytics. Both languages cover controls, status, help and accessibility labels. Connection failures disable dispatch controls, retain drafts and retry automatically; changes are announced only after the mod acknowledges them.
-
-### Let Claude build and arrange the queue
-
-QM registers the official Mods tool **mcp__qm__queue** at session startup. Ask Claude: "Create a queue for this project: inspect the code, fix the failures, run tests, then summarize. Keep it paused for my review." Claude can call:
-
-- {"action":"pause"} and {"action":"list"}
-- {"action":"add","tasks":["Inspect code","Run tests"]}
-- {"action":"reorder","ids":[2,1]} (include every pending ID exactly once)
-- {"action":"remove","ids":[2]}
-- {"action":"resume"}
-
-This is the same session queue used by Desktop, CLI and web. Mutations use stable IDs and the existing queue mutex; running tasks cannot be edited or removed. Adding while a turn is active only queues work for later. Claude must not recursively queue queue-management prompts. Tool access intentionally lets Claude read pending text when you ask it to manage the queue. This differs from the /qm transcript redaction that keeps ordinary queued arguments out of the active model turn. Host tool permission policy still applies.
-
-### Context readings
-
-Earlier UI versions only sampled usage during dispatch or explicit /qm context calls, leaving a newly opened panel uninitialized. The native view and web snapshot now also query official $.session.usage().context. No gateway settings are changed and no token values are fabricated. If the host has not reported numeric tokens/window, the UI explains that a model response may be needed; host call failures go to Claude's debug log. A last saved reading can remain available. This does not prove that every custom gateway exposes usage.
-
-### Verification and packaging
-
-Run npm run verify, npm run validate:mod, npm run test:host. Optional Playwright QA: install Playwright in your QA environment, then node scripts/ui-smoke.mjs (or set QM_PLAYWRIGHT_MODULE to its index.mjs file URL). It captures 1440/900/390 px × 0/3/20/200 tasks × English/Turkish and checks selection, drag reorder, repeat, delete confirmation and reconnect. Artifacts are local under artifacts/. Official host tests validate terminal/Desktop elements, not the final pixels of the installed Desktop app.
-
 # Claude Queue Manager (QM) — User guide
 
-[🌐 English / English](../languages/README.md) · [GitHub](https://github.com/ByBrawe/Claude-Queue-Manager) · [MIT](../../LICENSE)
+Queue tasks in **Claude Desktop → Code** or **Claude Code CLI** and run them as separate turns, one at a time. Manage the same session queue from the native panel, terminal or local web dashboard.
 
-QM queues prompts in Claude Desktop's **Code** tab or Claude Code CLI and starts each prompt as a separate turn after the previous main turn finishes. It does not steer a task that is already running.
+[MIT license](../../LICENSE) · [Changelog](../../CHANGELOG.md) · [Türkçe rehber](../tr/README.md)
 
-## What does “continue” mean?
+## Choose your language
 
-The word `continue` is **ordinary task text**, not a special QM keyword. You can write the task in any language. `/qm repeat 5 continue` queues five separate messages containing `continue`; it does not translate them.
+Documentation and interface controls are available in 20 languages. Select a guide below; change the interface language from the panel header or with `/qm lang <code>`.
 
-```text
-/qm repeat 5 continue
-```
+| | | | |
+| --- | --- | --- | --- |
+| [English](../en/README.md) | [Türkçe](../tr/README.md) | [Deutsch](../de/README.md) | [Français](../fr/README.md) |
+| [Español](../es/README.md) | [Italiano](../it/README.md) | [Português (Brasil)](../pt-BR/README.md) | [Русский](../ru/README.md) |
+| [Українська](../uk/README.md) | [Polski](../pl/README.md) | [Nederlands](../nl/README.md) | [Svenska](../sv/README.md) |
+| [日本語](../ja/README.md) | [한국어](../ko/README.md) | [简体中文](../zh-CN/README.md) | [العربية](../ar/README.md) |
+| [हिन्दी](../hi/README.md) | [Bahasa Indonesia](../id/README.md) | [Tiếng Việt](../vi/README.md) | [فارسی](../fa/README.md) |
 
-## Installation
+[Language codes and settings](../languages/README.md). Commands remain in English; task text can be in any language. Changing the interface language does not translate tasks. Community-language guides may describe an earlier UI; this README describes the current behavior.
 
-Install the GitHub marketplace and plugin in Claude Code. Open a **new local Code session** afterward, or run `/reload-plugins` if supported. The ordinary Claude Chat tab does not load this mod.
+## Features
+
+- **One task per turn:** pending prompts wait for the current main turn to finish.
+- **Native panel above the prompt:** task entry, repeat count/message, pause/resume, undo and pending-task controls appear together. An optional side panel is also available.
+- **Queue editing:** search, edit, move, select multiple tasks and confirm deletion. Running tasks are separate from pending work.
+- **Local web dashboard:** drag pending tasks by their handles, move selected groups and add batches or repetitions. Native and browser views use the same session queue.
+- **Claude queue tool:** ask Claude to create a task list, inspect it, reorder pending items or pause/resume processing.
+- **Optional automation:** completion checks, bounded retries, soft timeouts, context thresholds and conditional tasks.
+- **Recovery and history:** inspect saved sessions, recover orphaned tasks, transfer paused queues and view outcomes.
+- **20 interface languages:** native/CLI language selection and a separate browser preference; Arabic and Persian use RTL layout on the web.
+
+## Requirements
+
+Use a local Claude Code host with **Mods API support**. The plugin targets the Desktop **Code** tab and Claude Code CLI, not the ordinary Chat tab. Remote/cloud and Desktop WSL sessions are not supported.
+
+The native queue does not require Node.js. The optional web dashboard and cross-session restore require **Node.js 20+** on PATH. QM uses the host's existing model connection and does not change Gateway/API configuration.
+
+## Install
+
+Run in Claude Code:
 
 ```text
 /plugin marketplace add ByBrawe/Claude-Queue-Manager
 /plugin install qm@claude-queue-manager
 ```
 
-## Safe quick start
+Start a new local Code session or run `/reload-plugins`, then `/qm`. Disable other queue mods to avoid competing dispatchers.
 
-Pause the queue, add several tasks in one batch, inspect the panel, then resume. Only one new task is submitted after each completed main turn.
+To update an existing installation, run these commands in a terminal:
 
-```text
-/qm pause
-/qm batch Fix failing tests || Run the build || Summarize the changes
-/qm
-/qm resume
+```sh
+claude plugin marketplace update claude-queue-manager
+claude plugin update qm@claude-queue-manager
 ```
 
-## Interactive UI / TUI
+Reload plugins in each open session or restart the host after the current task finishes.
 
-Use **`/qm`** in Claude Desktop **Code** or Claude Code CLI to open the interactive pane: paste tasks, repeat using `5 | continue`, search pending tasks, paginate 12 at a time, edit/reorder rows, and clear pending tasks with two-step confirmation.
+### Install from a ZIP
 
-Switch UI language via the **English / Türkçe** dropdown or `/qm lang en` and `/qm lang tr`. Guides are available in 20 languages, but the interactive panel currently supports only English and Turkish. Test with two small tasks in your actual Desktop version.
-
-## Command reference
-
-| Command | Command reference |
-| --- | --- |
-| `/qm` | Open the queue panel |
-| `/qm add continue` | Add one task |
-| `/qm repeat 5 continue` | Add identical tasks (1–200 per call) |
-| `/qm batch A \|\| B \|\| C` | Add different tasks, in order |
-| `/qm front continue` | Put a task first |
-| `/qm pause  /qm resume` | Pause / resume automatic processing |
-| `/qm mv 3 1` | Move pending task 3 to position 1 |
-| `/qm edit 2 continue` | Edit pending task 2 |
-| `/qm rm 2` | Remove pending task 2 |
-| `/qm undo` | Undo the last queue edit |
-| `/qm clear` | Clear pending tasks only |
-| `/qm recover` | Recover an orphaned running task after a crash, then pause |
-| `/qm help` | Display help |
-
-## Limits and important notes
-
-Maximum **200 tasks per addition**, **500 pending tasks** in total. Each task may consume model usage and context; even with a 200K context window, turns do not automatically start with a fresh context. Do not repeat `continue` hundreds of times unless the underlying task has a clear stopping condition. Finished turns are not proof that the requested work succeeded.
-
-## Troubleshooting
-
-If `/qm` is missing, check the plugin is enabled and reopen a local **Code** session. Avoid running another queue mod simultaneously. The panel is experimental; start with two small tasks. ZIP installation is described below.
-
-### ZIP
-
-Unzip the archive, keep the extracted `Claude-Queue-Manager` directory in a stable location, and run:
+Extract the repository ZIP to a stable folder and register its root directory:
 
 ```sh
 claude plugin marketplace add /absolute/path/to/Claude-Queue-Manager
 claude plugin install qm@claude-queue-manager
 ```
 
-> Note: This is a translated guide; it does not localize the QM panel itself.
+The root must contain `.claude-plugin/marketplace.json` and `plugins/qm`. The archive is plugin source, not a standalone application. No additional API key or npm install is needed to use the native queue.
 
-0.5.0 validation: 55 Node tests and 7 official Claude host tests passed. Playwright captured 24 responsive/language/task-count states and passed six interaction checks. Real installed Desktop pixel testing was not performed for this release; host tests validate its element protocol. Keyboard hotkeys apply while the mod surface holds focus, not while typing a normal prompt.
+## Quick start
+
+Pause first to review the queue before starting:
+
+```text
+/qm pause
+/qm batch Inspect the project || Fix failing tests || Run the build || Summarize changes
+/qm
+/qm resume
+```
+
+Adding while Claude is idle and the queue is not paused can start the first task immediately. **Pause** stops the next dispatch; it lets the current turn finish. On interruption or a host/API error, in-flight work is returned to pending and the queue pauses.
+
+### Repeat a message 5 or 20 times
+
+In the native panel, enter **Count**, enter the message, then choose **Repeat**. The equivalent commands are:
+
+```text
+/qm repeat 5 Continue with the next unfinished item
+/qm repeat 20 Run the next step of the agreed plan
+```
+
+Each repetition is a separate task. `continue` is ordinary message text, not a special command. Repeated tasks consume model usage and share the session context.
+
+## Native panel and CLI
+
+`/qm`, `/qm inline` or the summary bar's **Expand** opens the full workspace above the prompt. Task entry, repeat fields, pending rows and primary controls stay visible; **Details** toggles advanced context, history and session information.
+
+- **Side panel** opens the separate native pane; the host controls its placement and dimensions.
+- **Web** opens the browser dashboard. It does not expand the native panel.
+- **Close** hides the manager. A summary bar remains while there is pending or running work; an empty queue has no permanent strip.
+- Pending rows paginate **4 per page above the prompt** and **12 per page in the side panel**.
+- Green indicates running work; yellow indicates a paused queue. Text labels also identify the state.
+- Use Tab/Shift+Tab and Enter for controls. The `p` pause/resume and `q` close shortcuts apply while the mod surface has focus, not while typing a regular prompt.
+
+## Local web dashboard
+
+```text
+/qm web
+```
+
+QM starts a loopback-only server at `127.0.0.1`, attempts to open the browser and copies a private URL when clipboard access is available. Calling `/qm web` again reopens the existing dashboard, or restarts a stale server. `/qm web stop` shuts it down.
+
+Drag handles reorder **pending tasks only**. Multi-select supports group movement and confirmed deletion. Clear the search filter before drag-and-drop. Connection errors preserve drafts and trigger reconnection; success is shown only after the mod acknowledges a change. Concurrent stale edits are rejected rather than applied to the wrong task.
+
+The URL contains a per-session access token. Keep it private. The dashboard mirrors the current Claude session; it does not create an independent queue or contact an external dashboard service.
+
+## Let Claude manage its own task list
+
+The mod registers **`mcp__qm__queue`**. For example, ask Claude:
+
+> Create a queue to inspect this project, fix the failures, run tests and summarize. Pause it so I can review the list before it starts.
+
+The tool supports `list`, `add`, `reorder`, `remove`, `pause` and `resume`. It uses the same queue as the native and web interfaces. Reordering requires every pending ID exactly once; running tasks cannot be removed or reordered. Host tool permissions still apply.
+
+Ordinary `/qm` command arguments are stripped from the model-readable command transcript. When you ask Claude to manage the queue through its tool, it can read the pending task text. Avoid recursively queuing queue-management prompts.
+
+## Command reference
+
+| Command | Purpose |
+| --- | --- |
+| `/qm`, `/qm inline`, `/qm list` | Open the manager above the prompt |
+| `/qm side`, `/qm close` | Open the side panel / close the manager |
+| `/qm add <task>` | Add one pending task |
+| `/qm batch A \|\| B \|\| C` | Add different tasks in order |
+| `/qm repeat 5 <message>` | Add 5 identical tasks; 1–200 per call |
+| `/qm pause`, `/qm resume` | Hold the next dispatch / resume processing |
+| `/qm front <task>` | Add a task at the front |
+| `/qm edit 2 <text>`, `/qm rm 2`, `/qm mv 3 1` | Edit, remove or move pending positions |
+| `/qm clear`, `/qm undo` | Clear pending tasks / undo a pending-queue edit |
+| `/qm lang de` | Select one of the 20 interface languages |
+| `/qm web`, `/qm web stop` | Open/reopen or stop the browser dashboard |
+| `/qm verify off\|marker\|ai [haiku]` | Select completion verification; AI uses an extra model call |
+| `/qm retry 2 5s`, `/qm retry last` | Configure bounded retries / requeue the last failed or unknown task |
+| `/qm timeout 10m\|off` | Classify elapsed time after a turn ends; does not abort it |
+| `/qm context`, `/qm context 85\|off` | Read host usage / configure a dispatch threshold |
+| `/qm if success <task>`, `/qm if failure <task>` | Add a conditional task |
+| `/qm onfail pause\|continue` | Choose terminal-failure behavior |
+| `/qm history [1-50]`, `/qm stats`, `/qm settings` | View outcomes, analytics and settings |
+| `/qm sessions`, `/qm restore SESSION_ID [recover]` | List sessions / transfer a paused queue into an empty session |
+| `/qm recover` | Return an orphaned in-flight task to pending and pause |
+| `/qm help` | Show command help |
+
+## Behavior and limits
+
+- Maximum **200 tasks per addition**, **500 pending**, **20,000 characters per task**. The serialized queue budget is **2,800 KiB**, within the host's shared **4 MiB plugin store**. An addition that cannot fit is rejected without discarding pending/running work.
+- A completed turn does not prove that the task succeeded. Marker verification is model self-report; AI verification examines the last answer and may return `unknown`. Unknown outcomes pause without automatically replaying potentially successful work. Retries can repeat side effects.
+- Context values come from official host usage data. If unavailable, QM explains this rather than inventing measurements. A saved reading may remain visible. Context thresholds do not compact or clear the session.
+- Recovery is explicit. Review whether an orphaned task already finished before replaying it. Cross-session restore requires a paused source and an empty target; close the source session first. The `recover` option acknowledges possible duplicate execution.
+- QM does not replace Claude's built-in Ctrl+Enter queue. Use QM controls for its serial queue.
+
+See the detailed automation guides in [English](../en/FEATURES-0.4.md) or [Türkçe](../tr/FEATURES-0.4.md), and [CHANGELOG](../../CHANGELOG.md) for release history.
+
+## Troubleshooting
+
+If `/qm` is missing, check that the plugin is enabled in a compatible local Code session. Reload plugins or restart after the active task finishes. A startup warning can expose a mod-loading failure; a missing slash-menu entry alone does not identify the cause.
+
+If the web page was closed, run `/qm web` again. If it cannot reconnect, use `/qm web stop`, then `/qm web` in the same session. Browser launching and clipboard access depend on the host environment.
+
+## Development and validation
+
+```sh
+npm run verify
+npm run validate:mod
+npm run test:host
+```
+
+Tests cover serial dispatch, interruption, stable-ID edits, retries, verification, context guards, session recovery, language selection and browser synchronization. Official host tests exercise native terminal/Desktop element protocols at narrow and wide widths; they do not verify final pixels in the installed Desktop application.
+
+Optional browser visual QA: install Playwright in a separate QA environment and run `node scripts/ui-smoke.mjs`. Set `QM_PLAYWRIGHT_MODULE` to its module URL if needed. The script covers 1440/900/390 px, 0/3/20/200 tasks, language changes and queue interactions; output goes under `artifacts/`.
+
+## License and inspiration
+
+[MIT](../../LICENSE) · Copyright © 2026 ByBrawe.
+
+Inspired by queue workflows in After by midudev and OpenCode Queue Manager. QM has no runtime dependency on either project.
 
