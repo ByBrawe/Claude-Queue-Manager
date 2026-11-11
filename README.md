@@ -101,6 +101,10 @@ Each repetition is a separate task. `continue` is ordinary message text, not a s
 - Green indicates running work; yellow indicates a paused queue. Text labels also identify the state.
 - Use Tab/Shift+Tab and Enter for controls. The `p` pause/resume and `q` close shortcuts apply while the mod surface has focus, not while typing a regular prompt.
 
+Pending rows run from top to bottom: **1 → 2 → 3**. The **Next pending** preview always shows the queue’s first pending item, even while searching or viewing another page. **Show first task** clears the filter and returns to page one. Conditional tasks may be skipped when their condition is not met. These numbers are pending positions, not persistent task IDs.
+
+Editing opens a full-width multiline field near the top of the panel: **10 rows in the side pane**, **6 above the prompt**. Choose **Save edit** to apply; submitting the input alone keeps the draft.
+
 ## Local web dashboard
 
 ```text

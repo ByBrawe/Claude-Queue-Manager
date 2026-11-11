@@ -7,6 +7,34 @@ import { host, find, flush } from './helpers.mjs';
 import { initialState, enqueue, configure, claim, settleTurn, undo, normalizeState } from '../src/queue.mjs';
 import { acquireLock, releaseLock } from '../src/restore-lock.mjs';
 
+test('long multiline native edits use full-width editor and save only explicitly',async()=>{
+ const h=await host();await h.cmd('pause');await h.cmd('add original');await h.cmd('');
+ for(const component of ['Pane','AbovePrompt']){
+  const render=()=>h.emit('ui.render',{component,props:{bodyColumns:48},surface:'desktop'},component==='Pane'?{component,requestId:'qm'}:{component});
+  let pane=await render();await find(pane,'qm-edit-1').onPress();pane=await render();
+  assert.equal(find(pane,'qm-edit-field').width,'100%');assert.ok(find(pane,'qm-edit-input').rows>=6);
+  const text=Array.from({length:90},(_,i)=>`Paragraph ${i+1}: Türkçe uzun görev metni.`).join('\n');
+  find(pane,'qm-edit-input').onInput(text);await find(pane,'qm-edit-input').onSubmit(text);
+  assert.notEqual(h.state().pending[0].text,text,'submit must not save multiline draft');
+  await find(pane,'qm-save-edit').onPress();assert.equal(h.state().pending[0].text,text);
+  await h.cmd('edit 1 original');
+ }
+ assert.equal(h.sent.length,0);
+});
+
+test('next-pending preview follows global FIFO order across filtering, paging and moves',async()=>{
+ const h=await host();await h.cmd('pause');await h.cmd('batch '+Array.from({length:20},(_,i)=>'Task '+(i+1)).join(' || '));
+ const render=()=>h.emit('ui.render',{component:'Pane',props:{bodyColumns:48},surface:'desktop'},{component:'Pane',requestId:'qm'});
+ let pane=await render();assert.match(find(pane,'qm-next-pending').children[0].children[0],/1\. Task 1$/);
+ assert.equal(find(pane,'qm-check-1').hotkey,undefined);
+ await find(pane,'qm-next-page').onPress();pane=await render();assert.ok(find(pane,'qm-edit-13'));assert.match(find(pane,'qm-next-pending').children[0].children[0],/Task 1$/);
+ find(pane,'qm-search').onInput('Task 20');pane=await render();assert.ok(find(pane,'qm-edit-20'));assert.match(find(pane,'qm-next-pending').children[0].children[0],/Task 1$/);
+ await find(pane,'qm-show-next').onPress();pane=await render();assert.equal(find(pane,'qm-search').value,'');assert.ok(find(pane,'qm-edit-1'));
+ await find(pane,'qm-up-2').onPress();pane=await render();assert.match(find(pane,'qm-next-pending').children[0].children[0],/1\. Task 2$/);
+ await h.cmd('resume');await flush();assert.equal(h.sent[0].text,'Task 2');
+ pane=await render();assert.match(find(pane,'qm-next-pending').children[0].children[0],/1\. Task 1$/);
+});
+
 test('full composer workspace shows repeats and pending actions without Details',async()=>{
  for(const count of [5,20]){
   const h=await host();await h.cmd('pause');await h.cmd('');

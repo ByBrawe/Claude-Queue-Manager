@@ -647,7 +647,7 @@ async function buildPane($, e) {
     button(Button, 'qm-sessions', t.sessionsLabel, () => act($, 'sessions'))
   ] });
   const active = state.running
-    ? node(Text, `▶ ${t.active}: #${state.running.id} ${shortened(state.running.text, 115)}`, { color: 'green' })
+    ? node(Text, `▶ ${t.active}: ${shortened(state.running.text, 115)}`, { color: 'green' })
     : node(Text, state.busy ? t.waiting : t.noActive, { dimColor: true });
 
   const actionRow = Box({ flexDirection: 'row', flexWrap: 'wrap', columnGap: 1, children: [
@@ -683,7 +683,7 @@ async function buildPane($, e) {
   }
   const pasteInput = Input
     ? block(Box, [node(Text, t.tasks || t.pending, { bold: true }),
-      Box({ width: '100%', flexDirection: 'column', children: [Input({ key: 'qm-add-tasks', rows: inline ? 2 : 4, value: bulkDraft, autoFocus: true,
+      Box({ width: '100%', flexDirection: 'column', children: [Input({ key: 'qm-add-tasks', rows: inline ? 2 : 4, value: bulkDraft, ...(editId === null ? {autoFocus:true} : {}),
       placeholder: t.addHint, onInput: value => { bulkDraft = String(value ?? ''); },
       onSubmit: queuePasted })] }), node(Text, state.paused ? t.addPaused : t.addStarts, { dimColor: true })], { rowGap: 0 })
     : node(Text, '/qm batch task 1 || task 2');
@@ -713,15 +713,15 @@ async function buildPane($, e) {
     }, { disabled: !selection.length })
   ] });
 
-  const rows = view.rows.map((task, rowIndex) => {
+  const rows = view.rows.map(task => {
     const activeEdit = editId === task.id;
     const cells = [
       button(Button, `qm-check-${task.id}`, selectedIds.has(task.id) ? '[x]' : '[ ]', () => {
         if (selectedIds.has(task.id)) selectedIds.delete(task.id); else selectedIds.add(task.id);
         groupRemoveArmed = false; redraw($);
-      }, { plain: true, hotkey: String(rowIndex + 1).length === 1 ? String(rowIndex + 1) : undefined }),
+      }, { plain: true }),
       node(Text, `${task.position}. ${task.when !== 'always' ? `[if ${task.when}] ` : ''}${shortened(task.text, Math.max(12, (e.props?.bodyColumns || 116) - (narrow ? 10 : 24)))}`, {
-        color: activeEdit ? 'cyan' : undefined, bold: activeEdit, wrap: 'truncate-end'
+        color: activeEdit || task.position === 1 ? 'cyan' : undefined, bold: activeEdit || task.position === 1, wrap: 'truncate-end'
       }),
       button(Button, `qm-edit-${task.id}`, t.select, () => {
         editId = task.id; editDraft = task.text; redraw($);
@@ -745,13 +745,12 @@ async function buildPane($, e) {
   const editing = editPosition < 0 ? null : state.pending[editPosition];
   const editBox = editing
     ? block(Box, [
-        node(Text, `${t.selected}: #${editPosition + 1}`, { color: 'cyan' }),
-        ...(Input ? [node(Text, t.edit), Input({ key: 'qm-edit-input', value: editDraft,
+        node(Text, `${t.edit}: ${editPosition + 1}.`, { color: 'cyan', bold: true }),
+        node(Text,t.editHelp,{dimColor:true}),
+        ...(Input ? [Box({key:'qm-edit-field',width:'100%',flexDirection:'column',children:[Input({ key: 'qm-edit-input', value: editDraft, rows: inline ? 6 : 10, autoFocus:true,
           onInput: value => { editDraft = String(value ?? ''); },
-          onSubmit: async value => {
-            if (await actTask($, editing.id, 'edit', value)) { editId = null; editDraft = ''; redraw($); }
-          }
-        })] : []),
+          onSubmit: value => { editDraft = String(value ?? ''); }
+        })]})] : []),
         Box({ flexDirection: 'row', columnGap: 1, children: [
           button(Button, 'qm-save-edit', t.save, async () => {
             if (await actTask($, editing.id, 'edit', editDraft)) { editId = null; editDraft = ''; redraw($); }
@@ -782,6 +781,10 @@ async function buildPane($, e) {
     ...(state.running ? [active] : state.busy ? [node(Text,t.waiting,{dimColor:true})] : !inline && state.pending.length===0 ? [node(Text, t.empty, {dimColor:true})] : []),
     ...(expanded ? [node(Text, t.pauseHint, { dimColor: true })] : []),
     ...(pauseInfo ? [pauseInfo] : []), ...(confirmNotice ? [confirmNotice] : []),
+    ...(state.pending.length ? [Box({key:'qm-next-pending',width:'100%',flexDirection:'column',children:[node(Text,`${t.nextPending}: 1. ${shortened(state.pending[0].text,115)}`,{color:'cyan',bold:true})]}),
+      node(Text,t.orderHint,{dimColor:true}),
+      button(Button,'qm-show-next',t.showNext,()=>{page=0;searchText='';redraw($);},{plain:true})] : []),
+    ...(editing ? [editBox] : []),
     pasteInput, button(Button, 'qm-add-action', t.addButton, () => queuePasted(bulkDraft), {variant:'primary'}),
     ...[
       node(Text,t.repeatButton,{bold:true}),
@@ -790,7 +793,7 @@ async function buildPane($, e) {
       button(Button, 'qm-repeat-action', t.repeatButton, () => queueRepeated(`${repeatCount} | ${repeatText}`))],
     ...(expanded && state.pending.length ? [search, selectionRow] : []),
     ...(expanded ? (view.rows.length ? rows : state.pending.length ? [node(Text, t.noMatch, { dimColor: true })] : []) : []),
-    ...(expanded && view.totalPages > 1 ? [pages] : []), ...(editing ? [editBox] : []), ...(recover ? [recover] : []),
+    ...(expanded && view.totalPages > 1 ? [pages] : []), ...(recover ? [recover] : []),
     button(Button, 'qm-details', detailsOpen ? (t.hideDetails || t.close) : (t.details || t.analytics), () => { detailsOpen = !detailsOpen; redraw($); }, { plain: true }),
     ...(detailsOpen ? [contextLine, settingsForm, node(Text,t.keys,{dimColor:true}), advancedActions,
       ...(state.undo.length && !state.pending.length && !state.running ? [button(Button, 'qm-empty-undo', t.undo, () => act($, 'undo'))] : []),

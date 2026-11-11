@@ -63,6 +63,10 @@ Kuyruk duraklatılmamışsa Claude boştayken ilk görev hemen başlayabilir. **
 
 Prompt üstünde sayfa başına **4**, yan panelde **12** görev gösterilir. Çalışan görev yeşil, duraklatılmış kuyruk sarıdır; durum metinle de belirtilir. Tab/Shift+Tab ile odaklanıp Enter ile seçebilirsin. `p` ve `q` kısayolları mod yüzeyi odaktayken çalışır; normal prompt yazarken uygulanmaz.
 
+Bekleyen sıra yukarıdan aşağıya **1 → 2 → 3** şeklindedir. **Sıradaki bekleyen** özeti, arama veya başka bir sayfa açıkken bile tüm kuyruğun ilk bekleyen görevini gösterir. **İlk görevi göster**, filtreyi temizleyip ilk sayfaya döner. Koşulu sağlanmayan görevler atlanabilir. Numaralar kalıcı görev kimliği değil, bekleyen sıradaki konumdur.
+
+Düzenleyici panelin üst kısmında tam genişlikte açılır: yan panelde **10**, prompt üstünde **6 satır**. Uzun ve çok satırlı metni **Değişikliği kaydet** düğmesiyle uygula; giriş alanının gönderme işlemi tek başına kaydetmez.
+
 ## 5 veya 20 tekrar ekleme
 
 **Adet** alanına 5 ya da 20, **Mesaj** alanına gönderilecek görevi yaz ve **Tekrarla** düğmesine bas. Aynı işlemin komut karşılığı:

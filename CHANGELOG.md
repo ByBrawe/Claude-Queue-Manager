@@ -1,3 +1,10 @@
+## 0.7.2 — Multiline editing and clear pending order
+
+- Use a full-width multiline editor near the top of the native workspace: 10 rows in the side pane, 6 above the prompt. Save explicitly; submitting the input alone keeps the draft.
+- Show the globally next pending task even when a later page or search filter is active. Add Show first task to clear search and return to page one.
+- Explain top-to-bottom pending positions and conditional skipping in all 20 languages. Highlight the first pending row; remove duplicate numeric checkbox shortcut badges and running-task IDs from the primary preview.
+- Preserve existing FIFO dispatch and stable-ID mutations. Cover long multiline round-trips, paging/search/reorder previews and official narrow/wide terminal/Desktop controls.
+
 ## 0.7.1 — Reset advanced settings to defaults
 
 - Add a localized Reset to defaults action in native/CLI Details and web Advanced settings, separate from Reload saved settings.

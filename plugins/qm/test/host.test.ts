@@ -47,6 +47,17 @@ for (const surface of ['terminal', 'desktop'] as const) {
       // Inline captions previously squeezed the editor to a tiny column.
       expect((await pane.find({ key: 'qm-add-tasks' }))?.props.label).toBeUndefined()
       expect(await pane.find({ key: 'qm-repeat-message' })).toBeDefined()
+      expect(await pane.find({key:'qm-next-pending'})).toBeDefined()
+      expect((await pane.find({key:'qm-check-1'}))?.props.hotkey).toBeUndefined()
+      await pane.press({key:'qm-edit-2'})
+      expect((await pane.find({key:'qm-edit-input'}))?.props.rows).toBe(10)
+      expect((await pane.find({key:'qm-edit-field'}))?.props.width).toBe('100%')
+      const multiline='Second task\nMore detailed instructions\nPreserve every line'
+      await pane.input({key:'qm-edit-input',text:multiline,kind:'change'})
+      await pane.press({key:'qm-save-edit'})
+      await pane.press({key:'qm-edit-2'})
+      expect((await pane.find({key:'qm-edit-input'}))?.props.value).toBe(multiline)
+      await pane.press({key:'qm-cancel-edit'})
       await pane.press({ key: 'qm-details' })
       expect(await pane.find({ type:'Text',text:/32%/ })).toBeDefined()
       expect(await pane.find({key:'qm-setting-verify'})).toBeDefined()

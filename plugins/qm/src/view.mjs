@@ -57,7 +57,33 @@ const messages = {
   }
 };
 
-export const uiStrings = locale => messages[locale] ?? EXTRA_MESSAGES[locale] ?? messages.en;
+const orderCopy={
+ en:'Next pending|Show first task|1 → 2 → 3, top to bottom. Conditional tasks may be skipped.|Edit the multiline text, then choose Save edit to apply.',
+ tr:'Sıradaki bekleyen|İlk görevi göster|1 → 2 → 3, yukarıdan aşağıya. Koşullu görevler atlanabilir.|Çok satırlı metni düzenle, ardından Değişikliği kaydet ile uygula.',
+ de:'Nächste wartende Aufgabe|Erste Aufgabe anzeigen|1 → 2 → 3, von oben nach unten. Bedingte Aufgaben können übersprungen werden.|Mehrzeiligen Text bearbeiten und mit Speichern übernehmen.',
+ fr:'Prochaine tâche en attente|Afficher la première tâche|1 → 2 → 3, de haut en bas. Les tâches conditionnelles peuvent être ignorées.|Modifiez le texte multiligne, puis enregistrez pour appliquer.',
+ es:'Siguiente tarea pendiente|Mostrar primera tarea|1 → 2 → 3, de arriba abajo. Se pueden omitir tareas condicionales.|Edita el texto multilínea y guarda para aplicar.',
+ it:'Prossima attività in attesa|Mostra prima attività|1 → 2 → 3, dall’alto in basso. Le attività condizionali possono essere saltate.|Modifica il testo su più righe e salva per applicare.',
+ 'pt-BR':'Próxima tarefa pendente|Mostrar primeira tarefa|1 → 2 → 3, de cima para baixo. Tarefas condicionais podem ser ignoradas.|Edite o texto em várias linhas e salve para aplicar.',
+ ru:'Следующая ожидающая задача|Показать первую задачу|1 → 2 → 3, сверху вниз. Условные задачи могут пропускаться.|Измените многострочный текст и сохраните изменения.',
+ uk:'Наступне завдання в черзі|Показати перше завдання|1 → 2 → 3, згори вниз. Умовні завдання можуть пропускатися.|Змініть багаторядковий текст і збережіть зміни.',
+ pl:'Następne oczekujące zadanie|Pokaż pierwsze zadanie|1 → 2 → 3, od góry do dołu. Zadania warunkowe mogą być pomijane.|Edytuj tekst wielowierszowy i zapisz zmiany.',
+ nl:'Volgende wachtende taak|Eerste taak tonen|1 → 2 → 3, van boven naar beneden. Voorwaardelijke taken kunnen worden overgeslagen.|Bewerk de tekst met meerdere regels en sla op.',
+ sv:'Nästa väntande uppgift|Visa första uppgiften|1 → 2 → 3, uppifrån och ned. Villkorliga uppgifter kan hoppas över.|Redigera texten på flera rader och spara.',
+ ja:'次の待機タスク|最初のタスクを表示|1 → 2 → 3、上から下へ。条件付きタスクはスキップされる場合があります。|複数行のテキストを編集し、保存して適用してください。',
+ ko:'다음 대기 작업|첫 작업 표시|1 → 2 → 3, 위에서 아래로. 조건부 작업은 건너뛸 수 있습니다.|여러 줄의 텍스트를 편집한 후 저장하세요.',
+ 'zh-CN':'下一个待处理任务|显示第一个任务|1 → 2 → 3，从上到下。条件任务可能被跳过。|编辑多行文本后，保存以应用。',
+ ar:'المهمة التالية في الانتظار|عرض المهمة الأولى|1 → 2 → 3، من الأعلى إلى الأسفل. قد تُتخطى المهام الشرطية.|عدّل النص متعدد الأسطر ثم احفظ لتطبيق التغيير.',
+ hi:'अगला प्रतीक्षारत कार्य|पहला कार्य दिखाएँ|1 → 2 → 3, ऊपर से नीचे। सशर्त कार्य छोड़े जा सकते हैं।|कई पंक्तियों का पाठ संपादित करें और लागू करने के लिए सहेजें।',
+ id:'Tugas menunggu berikutnya|Tampilkan tugas pertama|1 → 2 → 3, dari atas ke bawah. Tugas bersyarat dapat dilewati.|Edit teks beberapa baris lalu simpan untuk menerapkan.',
+ vi:'Công việc chờ tiếp theo|Hiện công việc đầu tiên|1 → 2 → 3, từ trên xuống dưới. Công việc có điều kiện có thể bị bỏ qua.|Sửa văn bản nhiều dòng rồi lưu để áp dụng.',
+ fa:'کار بعدی در انتظار|نمایش اولین کار|1 → 2 → 3، از بالا به پایین. کارهای شرطی ممکن است رد شوند.|متن چندخطی را ویرایش کنید و برای اعمال ذخیره کنید.'
+};
+export const uiStrings = locale => {
+ const base=messages[locale] ?? EXTRA_MESSAGES[locale] ?? messages.en;
+ const [nextPending,showNext,orderHint,editHelp]=(orderCopy[locale] ?? orderCopy.en).split('|');
+ return {...base,nextPending,showNext,orderHint,editHelp};
+};
 
 export function filteredPage(pending, search = '', requestedPage = 0, pageSize = 12) {
   const needle = String(search).trim().toLocaleLowerCase();
