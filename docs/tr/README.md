@@ -114,7 +114,7 @@ Native/CLI panelinde **Ayrıntılar**, web panelinde **Gelişmiş ayarlar** böl
 | Bağlam eşiği | %0–99; 0 kapatır |
 | Başarısızlıkta | Duraklat veya devam et |
 
-**Ayarları kaydet**, formun tamamını doğrulayıp tek işlemde kaydeder. **Kayıtlı ayarları yükle**, taslağı bırakıp güncel kaydı getirir. Hatalarda taslak korunur; başka panel veya komuttan değiştirilmiş ayarların üstüne sessizce yazılmaz. Kaydetmek kuyruğu devam ettirmez. Çalışan kuyruk görevi varken kayıt engellenir; önce duraklatıp görevin bitmesini bekle.
+**Ayarları kaydet**, formun tamamını doğrulayıp tek işlemde kaydeder. **Kayıtlı ayarları yükle**, taslağı bırakıp güncel kaydı getirir. **Varsayılana sıfırla**, varsayılan ayarları doğrudan kaydeder: doğrulama kapalı, doğrulama modeli haiku, retry/bekleme/zaman aşımı/bağlam eşiği 0 ve başarısızlıkta duraklat. Sıfırlama dili, görevleri, geçmişi ve duraklatma durumunu korur; kuyruğu devam ettirmez. Hatalarda taslak korunur; başka panel veya komuttan değiştirilmiş ayarların üstüne sessizce yazılmaz. Kaydetmek kuyruğu devam ettirmez. Çalışan kuyruk görevi varken kayıt engellenir; önce duraklatıp görevin bitmesini bekle.
 
 **Son başarısız görevi kuyruğa al**, son başarısız/zaman aşımı/belirsiz görevi başa ekler ve inceleme için kuyruğu duraklatır. Retry yalnızca başarısız doğrulama veya zaman aşımında uygulanır; API hataları ve kesintiler kuyruğu duraklatır. AI doğrulaması ek model çağrısı kullanır; zaman aşımı tur bittikten sonra değerlendirilir. Gateway/API yapılandırması değişmez.
 

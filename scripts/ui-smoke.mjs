@@ -5,7 +5,7 @@ import assert from 'node:assert/strict';
 import { mkdir, writeFile } from 'node:fs/promises';
 import { fileURLToPath } from 'node:url';
 import { createDashboard } from '../plugins/qm/web/server.mjs';
-import { initialState, enqueue, reorderByIds, removeByIds, configure, retryLast } from '../plugins/qm/src/queue.mjs';
+import { DEFAULT_CONFIG, initialState, enqueue, reorderByIds, removeByIds, configure, retryLast } from '../plugins/qm/src/queue.mjs';
 import { settingsGuard } from '../plugins/qm/src/settings.mjs';
 const { chromium } = await import(process.env.QM_PLAYWRIGHT_MODULE || 'playwright');
 const out=fileURLToPath(new URL('../artifacts/',import.meta.url));await mkdir(out,{recursive:true});
@@ -73,6 +73,13 @@ try{
  await page.waitForTimeout(1400);await page.click('#settings-save');await page.waitForTimeout(1400);
  assert.equal(state.config.retries,3);assert.equal(await page.inputValue('#setting-retries'),'4');
  await page.click('#settings-reset');assert.equal(await page.inputValue('#setting-retries'),'3');
+ const defaultsAck=page.waitForResponse(async response=>{
+   if(!response.url().includes('/api/state')||response.request().method()!=='GET')return false;
+   const data=await response.json();return data.lastAck?.ok&&data.state?.config?.retries===0;
+ });
+ await page.click('#settings-defaults');await defaultsAck;
+ await page.waitForFunction(()=>!document.querySelector('#settings-fields').disabled&&document.querySelector('#setting-retries').value==='0');
+ assert.deepEqual(state.config,DEFAULT_CONFIG);assert.equal(state.pending.length,6);assert.equal(state.paused,true);
  for(const width of [1440,900,390])for(const locale of ['en','tr']){
    await page.setViewportSize({width,height:1000});await page.selectOption('#locale',locale);
    assert.equal(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth),true,'settings overflow '+width);
@@ -82,7 +89,7 @@ try{
  assert.equal(await page.locator('#add-tasks').isDisabled(),true);
  await page.unroute('**/api/state');await page.waitForTimeout(1600);assert.equal(await page.locator('#connection-error').isVisible(),false);
  assert.deepEqual(errors,[]);
- await writeFile(`${out}/visual-results.json`,JSON.stringify({checks,settingsCaptures:6,interactions:['multi-select','drag reorder','repeat','delete confirmation','settings save','settings conflict','disconnect','reconnect'],pageErrors:errors},null,2));
- console.log(`${checks.length} queue captures, 6 settings captures and 8 interaction checks passed; no browser errors.`);
+ await writeFile(`${out}/visual-results.json`,JSON.stringify({checks,settingsCaptures:6,interactions:['multi-select','drag reorder','repeat','delete confirmation','settings save','settings conflict','settings defaults','disconnect','reconnect'],pageErrors:errors},null,2));
+ console.log(`${checks.length} queue captures, 6 settings captures and 9 interaction checks passed; no browser errors.`);
 }finally{clearInterval(timer);await browser.close();await app.close();}
 

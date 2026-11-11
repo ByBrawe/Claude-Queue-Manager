@@ -4,7 +4,7 @@ import { settingsStrings } from '../src/settings-locales.mjs';
 // Queue Manager is a self-contained Claude Code mod.
 // It never injects queued text into the current turn. Each item is submitted
 // as a new user turn after a successful main turn.complete event.
-import { initialState, normalizeState, normalizeUsage, enqueue, remove, move, edit, clear, undo,
+import { DEFAULT_CONFIG, initialState, normalizeState, normalizeUsage, enqueue, remove, move, edit, clear, undo,
   claim, settleTurn, recordContext, configure, statsText, retryLast, rejectSubmission, recover,
   removeByIds, reorderByIds, moveSelected } from '../src/queue.mjs';
 import { MARKER_NOTE, verdictFromText, parseAiVerdict, buildVerificationPrompt } from '../src/verification.mjs';
@@ -622,7 +622,7 @@ async function buildPane($, e) {
     }catch(error){editor.error=st[error.message]||st.error+': '+String(error.message);notify($,editor.error);}
     finally{editor.saving=false;redraw($);}
   };
-  const settingsForm=block(Box,[node(Text,st.title,{bold:true}),node(Text,st.hint,{dimColor:true}),
+  const settingsForm=block(Box,[node(Text,st.title,{bold:true}),node(Text,st.hint,{dimColor:true}),node(Text,st.defaultsHint,{dimColor:true}),
     settingField('verify',st.verify,[{value:'off',label:t.off},{value:'marker',label:'Marker'},{value:'ai',label:'AI'}]),
     settingField('model',st.model),node(Text,st.aiHint,{dimColor:true}),
     settingField('retries',st.retries),settingField('retryDelay',st.retryDelay),node(Text,st.retryHint,{dimColor:true}),settingField('timeout',st.timeout),
@@ -634,6 +634,10 @@ async function buildPane($, e) {
     Box({flexDirection:'row',flexWrap:'wrap',columnGap:1,children:[
       button(Button,'qm-settings-save',st.apply,saveSettings,{variant:'primary',disabled:Boolean(state.running)||editor.saving}),
       button(Button,'qm-settings-reset',st.reset,()=>{settingsEditor=null;redraw($);},{disabled:editor.saving}),
+      button(Button,'qm-settings-defaults',st.defaults,async()=>{
+        if(editor.saving)return;
+        editor.draft=configDraft(DEFAULT_CONFIG);editor.dirty=true;await saveSettings();
+      },{disabled:Boolean(state.running)||editor.saving}),
       button(Button,'qm-retry-last',st.retryLast,()=>act($,'retry last'),{disabled:Boolean(state.running)||!state.history.some(x=>['failure','unknown','timeout'].includes(x.status))})]})
   ]);
   const advancedActions = Box({ flexDirection: 'row', flexWrap: 'wrap', columnGap: 1, children: [

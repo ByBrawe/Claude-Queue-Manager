@@ -57,6 +57,8 @@ for (const surface of ['terminal', 'desktop'] as const) {
       await pane.input({key:'qm-setting-retries',text:'2',kind:'change'})
       await pane.press({key:'qm-settings-save'})
       expect((await pane.find({key:'qm-setting-retries'}))?.props.value).toBe('2')
+      await pane.press({key:'qm-settings-defaults'})
+      expect((await pane.find({key:'qm-setting-retries'}))?.props.value).toBe('0')
       expect((await pane.find({ key: 'qm-repeat-message' }))?.props.label).toBeUndefined()
       await pane.press({ key: 'qm-details' })
       expect(await pane.find({ key: 'qm-rm-2' })).toBeDefined()

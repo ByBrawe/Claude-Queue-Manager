@@ -48,5 +48,28 @@ const retryNotes={
  fa:'تلاش مجدد برای شکست تأیید یا پایان مهلت است. خطاهای API و وقفه‌ها صف را متوقف می‌کنند.'
 };
 for(const [code,retryHint] of Object.entries(retryNotes))SETTINGS_MESSAGES[code].retryHint=retryHint;
+const defaultNotes={
+ en:'Reset to defaults|Resets queue settings only. Language, tasks and history are preserved.',
+ tr:'Varsayılana sıfırla|Yalnızca kuyruk ayarları sıfırlanır. Dil, görevler ve geçmiş korunur.',
+ de:'Auf Standard zurücksetzen|Nur Warteschlangeneinstellungen werden zurückgesetzt. Sprache, Aufgaben und Verlauf bleiben erhalten.',
+ fr:'Rétablir les valeurs par défaut|Seuls les paramètres de la file sont réinitialisés. Langue, tâches et historique sont conservés.',
+ es:'Restablecer valores predeterminados|Solo se restablecen los ajustes de la cola. Se conservan idioma, tareas e historial.',
+ it:'Ripristina valori predefiniti|Ripristina solo le impostazioni della coda. Lingua, attività e cronologia restano invariate.',
+ 'pt-BR':'Restaurar padrões|Redefine apenas as configurações da fila. Idioma, tarefas e histórico são preservados.',
+ ru:'Сбросить настройки|Сбрасываются только настройки очереди. Язык, задачи и история сохраняются.',
+ uk:'Скинути до типових|Скидаються лише налаштування черги. Мова, завдання та історія зберігаються.',
+ pl:'Przywróć domyślne|Resetuje tylko ustawienia kolejki. Język, zadania i historia zostają zachowane.',
+ nl:'Standaardwaarden herstellen|Herstelt alleen wachtrij-instellingen. Taal, taken en geschiedenis blijven behouden.',
+ sv:'Återställ standardvärden|Återställer endast köinställningar. Språk, uppgifter och historik behålls.',
+ ja:'既定値に戻す|キュー設定のみをリセットします。言語、タスク、履歴は保持されます。',
+ ko:'기본값으로 초기화|대기열 설정만 초기화합니다. 언어, 작업 및 기록은 유지됩니다.',
+ 'zh-CN':'恢复默认设置|仅重置队列设置。语言、任务和历史记录将保留。',
+ ar:'استعادة الإعدادات الافتراضية|تُعاد إعدادات القائمة فقط. تُحفظ اللغة والمهام والسجل.',
+ hi:'डिफ़ॉल्ट बहाल करें|केवल कतार सेटिंग रीसेट होती हैं। भाषा, कार्य और इतिहास सुरक्षित रहते हैं।',
+ id:'Pulihkan bawaan|Hanya mengatur ulang pengaturan antrean. Bahasa, tugas, dan riwayat tetap tersimpan.',
+ vi:'Khôi phục mặc định|Chỉ đặt lại cài đặt hàng đợi. Ngôn ngữ, công việc và lịch sử được giữ nguyên.',
+ fa:'بازنشانی به پیش‌فرض|فقط تنظیمات صف بازنشانی می‌شود. زبان، کارها و تاریخچه حفظ می‌شوند.'
+};
+for(const [code,text] of Object.entries(defaultNotes)){const [defaults,defaultsHint]=text.split('|');Object.assign(SETTINGS_MESSAGES[code],{defaults,defaultsHint});}
 export const settingsStrings=code=>SETTINGS_MESSAGES[code] ?? SETTINGS_MESSAGES.en;
 

@@ -25,6 +25,8 @@ let settingsPending=null;
 function translateSettings(){
   const m=settingsStrings(locale);
   $('settings-retry-hint').textContent=m.retryHint;
+  $('settings-defaults-hint').textContent=m.defaultsHint;
+  $('settings-defaults').textContent=m.defaults;
   for(const [id,key] of [['settings-title','title'],['settings-hint','hint'],['settings-ai-hint','aiHint'],['settings-save','apply'],['settings-reset','reset'],['settings-retry-last','retryLast']])$(id).textContent=m[key];
   for(const key of FORM_KEYS)$('setting-label-'+key).textContent=m[key]+(key==='contextPercent'?' · 0–99':'');
   const off=EXTRA_MESSAGES[locale]?.off || (locale==='tr'?'Kapalı':'Off');
@@ -43,6 +45,7 @@ function renderSettings(){
   $('settings-fields').disabled=!online||!s||Boolean(settingsPending);
   $('settings-save').disabled=!online||!s||!settingsEditor||Boolean(s.running)||Boolean(pendingActionId);
   $('settings-reset').disabled=!s||Boolean(pendingActionId);
+  $('settings-defaults').disabled=!online||!s?.defaults||!settingsEditor||Boolean(s.running)||Boolean(pendingActionId);
   $('settings-retry-last').disabled=!online||!s||Boolean(s.running)||Boolean(pendingActionId)||!(s.history||[]).some(x=>['failure','timeout','unknown'].includes(x.status));
   const stale=settingsEditor?.dirty&&configSignature(settingsEditor.base)!==configSignature(s?.config);
   $('settings-status').textContent=settingsEditor?.error||(stale?m.stale:s?.running?m.running:'');
@@ -350,6 +353,11 @@ $('settings-form').onsubmit=async e=>{
   if(await action({type:'configure',updates,base:settingsEditor.base})){settingsPending=true;renderSettings();}
 };
 $('settings-reset').onclick=()=>{settingsEditor=null;clearTimeout(toastTimer);$('toast').classList.remove('show');renderSettings();};
+$('settings-defaults').onclick=async()=>{
+  if(!settingsEditor||!snapshot?.defaults||snapshot.running||pendingActionId||!online)return;
+  settingsEditor.draft=configDraft(snapshot.defaults);settingsEditor.dirty=true;settingsEditor.error=null;
+  if(await action({type:'configure',updates:{...snapshot.defaults},base:settingsEditor.base})){settingsPending=true;renderSettings();}
+};
 $('settings-retry-last').onclick=()=>void action({type:'retry-last'});
 document.addEventListener?.('keydown',e=>{if($('overlay').classList.contains('hidden'))return;if(e.key==='Escape')dismissDelete();if(e.key==='Tab'){e.preventDefault();(document.activeElement===$('cancel-confirm')?$('confirm-delete'):$('cancel-confirm')).focus();}});
 $('locale').replaceChildren(...LANGUAGES.map(x=>{const option=document.createElement('option');option.value=x.value;option.textContent=x.label;return option;}));

@@ -31,6 +31,21 @@ test('native advanced settings save all fields in one write without starting pen
  const b=await host({memory:h.memory});b.switchId(h.id());await b.cmd('settings');assert.equal(b.state()?.config?.retries,2);
 });
 
+test('native reset persists engine defaults without changing language, tasks or history',async()=>{
+ const h=await host();await h.cmd('verify marker');await h.cmd('add first');await flush();
+ await h.emit('turn.start',{turnId:'reset-history'});await h.emit('turn.complete',{turnId:'reset-history',reason:'answer',answer:'QM_FAIL'});await flush();
+ await h.cmd('batch A || B');await h.cmd('retry 3 5s');await h.cmd('timeout 10m');await h.cmd('context 80');await h.cmd('onfail continue');await h.cmd('lang de');
+ const before=structuredClone(h.state()),locale=h.memory.get('claude-queue-manager:prefs:locale');let pane=await settingsPanel(h);
+ await find(pane,'qm-settings-defaults').onPress();
+ assert.deepEqual(h.state().config,DEFAULT_CONFIG);
+ for(const key of ['pending','history','done','stats','paused'])assert.deepEqual(h.state()[key],before[key],key);
+ assert.equal(h.memory.get('claude-queue-manager:prefs:locale'),locale);assert.equal(h.sent.length,1);
+ await h.cmd('retry 3');pane=await h.emit('ui.render',{component:'Pane',props:{},surface:'desktop'},{component:'Pane',requestId:'qm'});
+ const original=h.tools.store.set;h.tools.store.set=async()=>{throw new Error('disk full');};
+ await find(pane,'qm-settings-defaults').onPress();h.tools.store.set=original;
+ assert.equal(h.state().config.retries,3,'failed reset must not replace durable config');
+});
+
 test('native invalid, concurrent and storage-rejected settings preserve config and draft',async()=>{
  const h=await host();await h.cmd('pause');let pane=await settingsPanel(h);
  find(pane,'qm-setting-retries').onInput('6');await find(pane,'qm-settings-save').onPress();assert.equal(h.state().config.retries,0);

@@ -127,7 +127,7 @@ Open **Details** in the native/CLI panel or **Advanced settings** in the web das
 | Context threshold | 0–99%; 0 disables it |
 | On failure | Pause or continue |
 
-Choose **Save settings** to validate and persist the entire form together. **Reload saved settings** discards the draft and loads the current saved values. Errors keep the draft; concurrent native/web/CLI changes are rejected rather than overwritten. Saving does not resume the queue. Pause and wait for a running queue task to finish before saving; the UI refuses changes while that task is active.
+Choose **Save settings** to validate and persist the entire form together. **Reload saved settings** discards the draft and loads the current saved values. **Reset to defaults** immediately saves the engine defaults: verification off, verifier model haiku, retries/delay/timeout/context threshold 0, and pause on failure. Resetting preserves language, tasks, history and pause state; it never resumes the queue. Errors keep the draft; concurrent native/web/CLI changes are rejected rather than overwritten. Saving does not resume the queue. Pause and wait for a running queue task to finish before saving; the UI refuses changes while that task is active.
 
 **Requeue last failed task** adds the latest failed, timed-out or unknown task at the front and leaves the queue paused for review. Retries apply to failed verification or soft timeout; API errors and interruptions pause the queue. AI verification adds a model call, and soft timeouts are evaluated after a turn ends. These settings do not change Gateway/API configuration.
 

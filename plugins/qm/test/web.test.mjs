@@ -94,6 +94,8 @@ test('browser dashboard enforces token, loopback host, origin, revision, operati
   assert.deepEqual(current.state.context, initial.context);
   assert.deepEqual(current.state.history, initial.history);
   assert.deepEqual(current.state.config, initial.config);
+  assert.equal(current.state.defaults.retries,0);
+  assert.equal(current.state.defaults.verify,'off');
   assert.equal(current.state.pauseReason,'user');
   assert.equal(current.waiting,false);
   assert.equal(current.lastAck.id,action.id);

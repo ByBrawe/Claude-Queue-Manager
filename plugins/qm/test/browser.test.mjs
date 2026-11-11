@@ -37,7 +37,7 @@ test('browser keeps rejected drafts, clears only acknowledged unchanged drafts',
 test('browser settings keep drafts until durable ack and preserve rejected edits',async()=>{
  const elements=new Map(),get=id=>{if(!elements.has(id))elements.set(id,element());return elements.get(id);};
  let refresh,ack=null,operation=null,accepted=0,rejectSettings=false;
- const state={pending:[],done:[],running:null,paused:true,busy:false,config:{...DEFAULT_CONFIG}};
+ const state={pending:[],done:[],running:null,paused:true,busy:false,config:{...DEFAULT_CONFIG},defaults:{...DEFAULT_CONFIG}};
  const context={LANGUAGES,EXTRA_MESSAGES,canonicalLocale,configDraft,parseSettings,configSignature,FORM_KEYS,settingsStrings,
  document:{getElementById:get,createElement:element,documentElement:{}},location:{hash:'#token='+'a'.repeat(48)},URLSearchParams,
  setInterval:fn=>{refresh=fn;},setTimeout:()=>1,clearTimeout(){},
@@ -56,5 +56,9 @@ test('browser settings keep drafts until durable ack and preserve rejected edits
  assert.equal(get('settings-fields').disabled,false);assert.equal(get('settings-status').textContent,'');
  rejectSettings=true;get('setting-retries').oninput({target:{value:'4'}});await get('settings-form').onsubmit({preventDefault(){}});
  assert.equal(get('setting-retries').value,'4');assert.equal(get('settings-status').textContent,settingsStrings('tr').stale);
+ rejectSettings=false;await get('settings-defaults').onclick();
+ assert.deepEqual(operation.updates,DEFAULT_CONFIG);assert.equal(state.config.retries,3,'reset is not saved before acknowledgement');
+ state.config={...DEFAULT_CONFIG};ack={id:3,ok:true};await refresh();
+ assert.equal(get('setting-retries').value,'0');assert.equal(state.paused,true);
 });
 

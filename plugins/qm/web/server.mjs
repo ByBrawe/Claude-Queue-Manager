@@ -4,7 +4,7 @@ import { readFile } from 'node:fs/promises';
 import { fileURLToPath } from 'node:url';
 import { dirname, join } from 'node:path';
 import { randomBytes, timingSafeEqual } from 'node:crypto';
-import { configure } from '../src/queue.mjs';
+import { configure, DEFAULT_CONFIG } from '../src/queue.mjs';
 import { settingsGuard, CONFIG_KEYS } from '../src/settings.mjs';
 
 const here = dirname(fileURLToPath(import.meta.url));
@@ -121,6 +121,7 @@ export function createDashboard({ token = randomBytes(32).toString('hex'), port 
         }
         revision = body.revision;
         snapshot = {
+          defaults: { ...DEFAULT_CONFIG },
           sessionId: body.state.sessionId ?? null,
           locale: body.state.locale ?? null,
           pending: body.state.pending,

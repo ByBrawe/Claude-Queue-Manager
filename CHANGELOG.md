@@ -1,3 +1,10 @@
+## 0.7.1 — Reset advanced settings to defaults
+
+- Add a localized Reset to defaults action in native/CLI Details and web Advanced settings, separate from Reload saved settings.
+- Persist the engine defaults through the existing atomic, stale-checked save flow. Web defaults come from the server's engine constant rather than a second browser definition.
+- Preserve queue items, history, language and pause state; do not resume tasks. Running-task and storage-error protections apply to resetting as well.
+- Cover native reset/preservation/storage failures, browser acknowledgement and official host reset controls; add a Playwright reset interaction.
+
 ## 0.7.0 — Editable advanced settings
 
 - Add native/CLI Details and web Advanced settings forms for all seven existing queue settings: verification, AI verifier model, retry count/delay, soft timeout, context threshold and failure policy.
