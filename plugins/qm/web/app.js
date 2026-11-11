@@ -1,4 +1,6 @@
 import { LANGUAGES, EXTRA_MESSAGES, canonicalLocale } from '/locales.mjs';
+import { configDraft, parseSettings, configSignature, FORM_KEYS } from '/settings.mjs';
+import { settingsStrings } from '/settings-locales.mjs';
 // Browser-only UI; the authoritative queue lives in the Claude Code mod.
 // A localhost dashboard queues operations for the mod to validate and commit.
 const $ = id => document.getElementById(id);
@@ -17,6 +19,35 @@ let online=false;
 let modalSelection=[];
 let repeatDraftPending=null;
 let lastFocus=null;
+let settingsEditor=null;
+let settingsPending=null;
+
+function translateSettings(){
+  const m=settingsStrings(locale);
+  $('settings-retry-hint').textContent=m.retryHint;
+  for(const [id,key] of [['settings-title','title'],['settings-hint','hint'],['settings-ai-hint','aiHint'],['settings-save','apply'],['settings-reset','reset'],['settings-retry-last','retryLast']])$(id).textContent=m[key];
+  for(const key of FORM_KEYS)$('setting-label-'+key).textContent=m[key]+(key==='contextPercent'?' · 0–99':'');
+  const off=EXTRA_MESSAGES[locale]?.off || (locale==='tr'?'Kapalı':'Off');
+  for(const [key,options] of [['verify',[['off',off],['marker','Marker'],['ai','AI']]],['onFail',[['pause',t().pause],['continue',t().resume]]]]){
+    const value=$('setting-'+key).value;
+    $('setting-'+key).replaceChildren(...options.map(([value,label])=>{const option=document.createElement('option');option.value=value;option.textContent=label;return option;}));
+    $('setting-'+key).value=value;
+  }
+}
+function renderSettings(){
+  const s=snapshot,m=settingsStrings(locale);
+  if(s?.config&&(!settingsEditor||(!settingsEditor.dirty&&!settingsPending))){
+    settingsEditor={base:{...s.config},draft:configDraft(s.config),dirty:false,error:null};
+  }
+  if(settingsEditor)for(const key of FORM_KEYS){const input=$('setting-'+key),value=settingsEditor.draft[key];if(input.value!==value)input.value=value;}
+  $('settings-fields').disabled=!online||!s||Boolean(settingsPending);
+  $('settings-save').disabled=!online||!s||!settingsEditor||Boolean(s.running)||Boolean(pendingActionId);
+  $('settings-reset').disabled=!s||Boolean(pendingActionId);
+  $('settings-retry-last').disabled=!online||!s||Boolean(s.running)||Boolean(pendingActionId)||!(s.history||[]).some(x=>['failure','timeout','unknown'].includes(x.status));
+  const stale=settingsEditor?.dirty&&configSignature(settingsEditor.base)!==configSignature(s?.config);
+  $('settings-status').textContent=settingsEditor?.error||(stale?m.stale:s?.running?m.running:'');
+  $('settings-status').classList.toggle('error',Boolean(settingsEditor?.error));
+}
 
 const labels = {
   en: {
@@ -100,6 +131,7 @@ function markConnected(ok) {
   $('conn').classList.toggle('offline', !ok);
 }
 function translated() {
+  translateSettings();
   const m = t();
   $('headline').textContent = m.headline; $('subtitle').textContent = m.subtitle;
   $('eyebrow-analytics').textContent = m.analyticsSection; $('analytics-title').textContent = m.analyticsTitle;
@@ -132,6 +164,7 @@ function el(tag, classes, text) {
 function taskIds() { return snapshot?.pending.map(p => p.id) || []; }
 function selectedIds() { return taskIds().filter(id => selected.has(id)); }
 function render() {
+  renderSettings();
   const focusKey = document.activeElement?.id;
   const m = t(); const s = snapshot;
   $('pending-count').textContent = s ? s.pending.length : '—';
@@ -237,6 +270,10 @@ async function refresh() {
     snapshot = data.state;
     if (pendingActionId && data.lastAck?.id === pendingActionId) {
       const ack = data.lastAck; pendingActionId = null;
+      if(settingsPending){
+        if(ack.ok){settingsEditor=null;}else if(settingsEditor){settingsEditor.error=settingsStrings(locale)[ack.error]||settingsStrings(locale).error+': '+ack.error;}
+        settingsPending=null;
+      }
       if (ack.ok && pendingDraft !== null && $('tasks-input').value === pendingDraft) $('tasks-input').value = '';
       pendingDraft = null;
       if(ack.ok && repeatDraftPending && $('repeat-message').value===repeatDraftPending.message){$('repeat-message').value='';}
@@ -259,7 +296,11 @@ async function action(operation) {
     pendingActionId = data.accepted;
     render();
     return true;
-  } catch (error) { toast(error.status === 409 ? t().stale : error.message,true); await refresh(); return false; }
+  } catch (error) {
+    const settingsError=settingsStrings(locale)[error.message];
+    if(operation.type==='configure'&&settingsEditor)settingsEditor.error=settingsError||settingsStrings(locale).error+': '+error.message;
+    toast(error.status===409?t().stale:settingsError||error.message,true);await refresh();return false;
+  }
 }
 function moveOne(id, delta) {
   const ordered = taskIds(); const at = ordered.indexOf(id); const target = at + delta;
@@ -298,6 +339,18 @@ $('search').oninput=e=>{searchTerm=String(e.target.value).toLocaleLowerCase().tr
 $('add-tasks').onclick=addTasks;
 $('locale').onchange=e=>{locale=canonicalLocale(e.target.value)||'tr';try{localStorage.setItem('qm-locale',locale);}catch{}translated();render();markConnected(online);};
 $('repeat-add').onclick=async()=>{const count=Number($('repeat-count').value),message=$('repeat-message').value.trim();if(!Number.isInteger(count)||count<1||count>200||!message||message.length>20000){toast(t().invalid,true);return;}if(await action({type:'add',texts:Array(count).fill(message)}))repeatDraftPending={message};};
+for(const key of FORM_KEYS)$('setting-'+key).oninput=e=>{
+  if(!settingsEditor)return;settingsEditor.draft[key]=String(e.target.value);settingsEditor.dirty=true;settingsEditor.error=null;
+};
+$('settings-form').onsubmit=async e=>{
+  e.preventDefault();if(!settingsEditor||pendingActionId)return;
+  const m=settingsStrings(locale);
+  let updates;
+  try{updates=parseSettings(settingsEditor.draft);}catch(error){settingsEditor.error=m.invalid+': '+(m[error.message]||error.message);renderSettings();return;}
+  if(await action({type:'configure',updates,base:settingsEditor.base})){settingsPending=true;renderSettings();}
+};
+$('settings-reset').onclick=()=>{settingsEditor=null;clearTimeout(toastTimer);$('toast').classList.remove('show');renderSettings();};
+$('settings-retry-last').onclick=()=>void action({type:'retry-last'});
 document.addEventListener?.('keydown',e=>{if($('overlay').classList.contains('hidden'))return;if(e.key==='Escape')dismissDelete();if(e.key==='Tab'){e.preventDefault();(document.activeElement===$('cancel-confirm')?$('confirm-delete'):$('cancel-confirm')).focus();}});
 $('locale').replaceChildren(...LANGUAGES.map(x=>{const option=document.createElement('option');option.value=x.value;option.textContent=x.label;return option;}));
 try{locale=canonicalLocale(localStorage.getItem('qm-locale'))||'tr';}catch{} $('locale').value=locale;

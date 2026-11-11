@@ -236,6 +236,27 @@ test('web bridge applies a browser reorder to real session queue before resuming
   const getState = async () => (await (await fetch(u.origin+'/api/state',{headers:{'x-qm-token':tok}})).json());
   let state = await getState();
   assert.deepEqual(state.state.pending.map(x=>x.text),['alpha','beta','gamma']);
+  const originalConfig=state.state.config;
+  const configUpdate={...originalConfig,retries:2,retryDelayMs:5000};
+  const configured=await fetch(u.origin+'/api/action',{
+    method:'POST',headers:{'x-qm-token':tok,'content-type':'application/json'},
+    body:JSON.stringify({revision:state.revision,operation:{type:'configure',base:originalConfig,updates:configUpdate}})
+  });
+  assert.equal(configured.status,202);await tick();state=await getState();
+  assert.equal(state.lastAck.ok,true);assert.deepEqual(state.state.config,configUpdate);
+  assert.equal(h.sent.length,0);assert.equal(state.state.paused,true);
+  const staleConfig=await fetch(u.origin+'/api/action',{
+    method:'POST',headers:{'x-qm-token':tok,'content-type':'application/json'},
+    body:JSON.stringify({revision:state.revision,operation:{type:'configure',base:originalConfig,updates:configUpdate}})
+  });
+  assert.equal(staleConfig.status,400);
+  const racingConfig=await fetch(u.origin+'/api/action',{
+    method:'POST',headers:{'x-qm-token':tok,'content-type':'application/json'},
+    body:JSON.stringify({revision:state.revision,operation:{type:'configure',base:configUpdate,updates:{...configUpdate,retries:4}}})
+  });
+  assert.equal(racingConfig.status,202);
+  await h.emit('command.run',{args:'retry 3 5s'},{command:'qm'});await tick();state=await getState();
+  assert.equal(state.lastAck.ok,false);assert.equal(state.state.config.retries,3,'native settings win over stale accepted web change');
   const ids=state.state.pending.map(x=>x.id);
   const reorder=await fetch(u.origin+'/api/action',{
     method:'POST',headers:{'x-qm-token':tok,'content-type':'application/json'},

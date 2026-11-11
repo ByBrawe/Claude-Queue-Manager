@@ -1,4 +1,6 @@
 import { canonicalLocale } from '../src/locales.mjs';
+import { configDraft, parseSettings, configSignature, settingsGuard } from '../src/settings.mjs';
+import { settingsStrings } from '../src/settings-locales.mjs';
 // Queue Manager is a self-contained Claude Code mod.
 // It never injects queued text into the current turn. Each item is submitted
 // as a new user turn after a successful main turn.complete event.
@@ -39,6 +41,7 @@ const PREFS_KEY = 'claude-queue-manager:prefs:locale';
 let startupWarning = null;
 let managerOpen = false;
 let detailsOpen = false;
+let settingsEditor = null;
 let rowRemoveArmed = null;
 let repeatCount = '5';
 
@@ -173,12 +176,14 @@ async function syncWebAction($) {
   if (item.id === webHandledId) { if (webAck) await sendWebSnapshot($); return; }
   webHandledId = item.id; // Prevent duplicate application after an acknowledgement failure.
   try {
-    await change($, state => {
+    await change($, (state, now) => {
       if (item.revision !== webRevision) throw new Error('Queue changed; refresh before editing');
       const op = item.operation;
       if (op.type === 'reorder') return reorderByIds(state, op.ids);
       if (op.type === 'remove') return removeByIds(state, op.ids);
       if (op.type === 'add') return enqueue(state, op.texts);
+      if (op.type === 'configure') { settingsGuard(state,op.base); return configure(state,op.updates); }
+      if (op.type === 'retry-last') { if(state.running)throw new Error('running'); return retryLast(state,now); }
       if (op.type === 'pause') return { ...state, paused: true };
       if (op.type === 'resume') return { ...state, paused: false };
       throw new Error('Unknown browser operation');
@@ -589,6 +594,48 @@ async function buildPane($, e) {
   const recentOutcomes = state.history.slice(0, 4).map(item => node(Text,
     `#${item.id} ${({success:t.done,failure:t.failure||t.unavailable,timeout:t.timeoutLabel,unknown:t.unavailable,skipped:t.skipped||t.off})[item.status] || t.done} · ${Math.round((item.durationMs || 0)/1000)}s · ${shortened(item.text, 65)}`,
     { dimColor: true }));
+  const st=settingsStrings(language);
+  if(!settingsEditor || settingsEditor.sessionId!==state.sessionId || !settingsEditor.dirty){
+    settingsEditor={sessionId:state.sessionId,base:{...state.config},draft:configDraft(state.config),dirty:false,error:null,saving:false};
+  }
+  const editor=settingsEditor;
+  const settingField=(key,label,options)=>{
+    const update=value=>{editor.draft[key]=String(value);editor.dirty=true;editor.error=null;};
+    return block(Box,[node(Text,label),Box({width:'100%',flexDirection:'column',children:[options&&Select
+      ? Select({key:'qm-setting-'+key,options,value:editor.draft[key],onSelect:update})
+      : Input({key:'qm-setting-'+key,value:editor.draft[key],onInput:update,onSubmit:update})]})],{rowGap:0});
+  };
+  const saveSettings=async()=>{
+    if(editor.saving)return;
+    const submitted={...editor.draft};
+    editor.dirty=true;editor.saving=true;redraw($);
+    try{
+      let updates;
+      try{updates=parseSettings(submitted);}catch(error){throw new Error(st.invalid+': '+(st[error.message]||error.message));}
+      await change($,current=>{
+        if(current.sessionId!==editor.sessionId)throw new Error('stale');
+        settingsGuard(current,editor.base);return configure(current,updates);
+      });
+      if(JSON.stringify(editor.draft)===JSON.stringify(submitted))settingsEditor=null;
+      else {editor.base={...updates};editor.error=null;settingsEditor=editor;}
+      notify($,st.saved);
+    }catch(error){editor.error=st[error.message]||st.error+': '+String(error.message);notify($,editor.error);}
+    finally{editor.saving=false;redraw($);}
+  };
+  const settingsForm=block(Box,[node(Text,st.title,{bold:true}),node(Text,st.hint,{dimColor:true}),
+    settingField('verify',st.verify,[{value:'off',label:t.off},{value:'marker',label:'Marker'},{value:'ai',label:'AI'}]),
+    settingField('model',st.model),node(Text,st.aiHint,{dimColor:true}),
+    settingField('retries',st.retries),settingField('retryDelay',st.retryDelay),node(Text,st.retryHint,{dimColor:true}),settingField('timeout',st.timeout),
+    settingField('contextPercent',st.contextPercent+' · 0–99'),
+    settingField('onFail',st.onFail,[{value:'pause',label:t.pause},{value:'continue',label:t.resume}]),
+    ...(editor.error?[node(Text,editor.error,{color:'red'})]:[]),
+    ...(editor.dirty&&configSignature(editor.base)!==configSignature(state.config)?[node(Text,st.stale,{color:'yellow'})]:[]),
+    ...(state.running?[node(Text,st.running,{color:'yellow'})]:[]),
+    Box({flexDirection:'row',flexWrap:'wrap',columnGap:1,children:[
+      button(Button,'qm-settings-save',st.apply,saveSettings,{variant:'primary',disabled:Boolean(state.running)||editor.saving}),
+      button(Button,'qm-settings-reset',st.reset,()=>{settingsEditor=null;redraw($);},{disabled:editor.saving}),
+      button(Button,'qm-retry-last',st.retryLast,()=>act($,'retry last'),{disabled:Boolean(state.running)||!state.history.some(x=>['failure','unknown','timeout'].includes(x.status))})]})
+  ]);
   const advancedActions = Box({ flexDirection: 'row', flexWrap: 'wrap', columnGap: 1, children: [
     button(Button, 'qm-stats', t.analytics, () => act($, 'stats')),
     button(Button, 'qm-context', t.contextLabel, () => act($, 'context')),
@@ -741,7 +788,7 @@ async function buildPane($, e) {
     ...(expanded ? (view.rows.length ? rows : state.pending.length ? [node(Text, t.noMatch, { dimColor: true })] : []) : []),
     ...(expanded && view.totalPages > 1 ? [pages] : []), ...(editing ? [editBox] : []), ...(recover ? [recover] : []),
     button(Button, 'qm-details', detailsOpen ? (t.hideDetails || t.close) : (t.details || t.analytics), () => { detailsOpen = !detailsOpen; redraw($); }, { plain: true }),
-    ...(detailsOpen ? [contextLine, node(Text,t.keys,{dimColor:true}), advancedActions,
+    ...(detailsOpen ? [contextLine, settingsForm, node(Text,t.keys,{dimColor:true}), advancedActions,
       ...(state.undo.length && !state.pending.length && !state.running ? [button(Button, 'qm-empty-undo', t.undo, () => act($, 'undo'))] : []),
       ...(recent ? [recent] : []), ...recentOutcomes, node(Text, t.help, { dimColor: true })] : [])
   ], { rowGap: 1 });

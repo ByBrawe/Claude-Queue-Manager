@@ -28,6 +28,24 @@ test('stable-ID reorder and multi-select remove cannot corrupt active task', () 
   assert.throws(() => moveSelected(moved,[b[0],b[0]],'front'),/stale/);
 });
 
+test('web settings gate rejects invalid, stale and running-task changes before queuing',async t=>{
+ const app=createDashboard({token:TOKEN}),port=await app.listen();t.after(()=>app.close());
+ let state=initialState('settings-web');
+ const snapshot=async revision=>fetch(api(port,'state'),options('POST',{revision,state}));
+ await snapshot(1);
+ const post=async operation=>fetch(api(port,'action'),options('POST',{revision:app.getState().revision,operation}));
+ for(const updates of [{...state.config,retries:6},{...state.config,timeoutMs:-1},{...state.config,secret:'bad'}]){
+   assert.equal((await post({type:'configure',base:state.config,updates})).status,400);assert.equal(app.getState().waitingAction,null);
+ }
+ assert.equal((await post({type:'configure',base:{...state.config,retries:1},updates:state.config})).status,400);
+ state={...state,running:{id:1,text:'ACTIVE'}};await snapshot(2);
+ assert.equal((await post({type:'configure',base:state.config,updates:{...state.config,retries:1}})).status,400);
+ assert.equal((await post({type:'retry-last'})).status,400);
+ state={...state,running:null};await snapshot(3);
+ assert.equal((await post({type:'configure',base:state.config,updates:{...state.config,retries:1}})).status,202);
+ assert.equal(app.getState().snapshot.config.retries,0,'acceptance alone must not imply persistence');
+});
+
 test('browser dashboard enforces token, loopback host, origin, revision, operation ack', async t => {
   const app = createDashboard({ token: TOKEN });
   const port = await app.listen();

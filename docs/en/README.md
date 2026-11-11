@@ -92,7 +92,7 @@ Each repetition is a separate task. `continue` is ordinary message text, not a s
 
 ## Native panel and CLI
 
-`/qm`, `/qm inline` or the summary bar's **Expand** opens the full workspace above the prompt. Task entry, repeat fields, pending rows and primary controls stay visible; **Details** toggles advanced context, history and session information.
+`/qm`, `/qm inline` or the summary bar's **Expand** opens the full workspace above the prompt. Task entry, repeat fields, pending rows and primary controls stay visible; **Details** opens editable advanced settings, context, history and session information.
 
 - **Side panel** opens the separate native pane; the host controls its placement and dimensions.
 - **Web** opens the browser dashboard. It does not expand the native panel.
@@ -112,6 +112,24 @@ QM starts a loopback-only server at `127.0.0.1`, attempts to open the browser an
 Drag handles reorder **pending tasks only**. Multi-select supports group movement and confirmed deletion. Clear the search filter before drag-and-drop. Connection errors preserve drafts and trigger reconnection; success is shown only after the mod acknowledges a change. Concurrent stale edits are rejected rather than applied to the wrong task.
 
 The URL contains a per-session access token. Keep it private. The dashboard mirrors the current Claude session; it does not create an independent queue or contact an external dashboard service.
+
+## Advanced settings
+
+Open **Details** in the native/CLI panel or **Advanced settings** in the web dashboard. All existing queue settings can be edited without typing commands:
+
+| Setting | Accepted values |
+| --- | --- |
+| Verification | Off, Marker or AI |
+| AI verifier model | Existing model alias/name, used only for AI verification |
+| Retries | 0–5 additional attempts |
+| Retry delay | 0–600 seconds |
+| Soft timeout | 0–86,400 seconds; 0 disables it |
+| Context threshold | 0–99%; 0 disables it |
+| On failure | Pause or continue |
+
+Choose **Save settings** to validate and persist the entire form together. **Reload saved settings** discards the draft and loads the current saved values. Errors keep the draft; concurrent native/web/CLI changes are rejected rather than overwritten. Saving does not resume the queue. Pause and wait for a running queue task to finish before saving; the UI refuses changes while that task is active.
+
+**Requeue last failed task** adds the latest failed, timed-out or unknown task at the front and leaves the queue paused for review. Retries apply to failed verification or soft timeout; API errors and interruptions pause the queue. AI verification adds a model call, and soft timeouts are evaluated after a turn ends. These settings do not change Gateway/API configuration.
 
 ## Let Claude manage its own task list
 

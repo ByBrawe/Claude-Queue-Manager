@@ -4,6 +4,8 @@ import { readFile } from 'node:fs/promises';
 import { fileURLToPath } from 'node:url';
 import { dirname, join } from 'node:path';
 import { randomBytes, timingSafeEqual } from 'node:crypto';
+import { configure } from '../src/queue.mjs';
+import { settingsGuard, CONFIG_KEYS } from '../src/settings.mjs';
 
 const here = dirname(fileURLToPath(import.meta.url));
 const MAX_BODY = 12 * 1024 * 1024;
@@ -54,9 +56,9 @@ export function createDashboard({ token = randomBytes(32).toString('hex'), port 
       return send(res, 403, { error: 'Invalid host' });
     }
     const url = new URL(req.url, `http://127.0.0.1:${actualPort}`);
-    const allowed = ['/', '/app.js', '/style.css', '/locales.mjs'];
+    const allowed = ['/', '/app.js', '/style.css', '/locales.mjs', '/settings.mjs', '/settings-locales.mjs'];
     if (req.method === 'GET' && allowed.includes(url.pathname)) {
-      const kind = url.pathname === '/' ? 'index.html' : url.pathname === '/locales.mjs' ? '../src/locales.mjs' : url.pathname.slice(1);
+      const kind = url.pathname === '/' ? 'index.html' : ['/locales.mjs','/settings.mjs','/settings-locales.mjs'].includes(url.pathname) ? '../src'+url.pathname : url.pathname.slice(1);
       const type = kind.endsWith('.html') ? 'text/html' : kind.endsWith('.css') ? 'text/css' : 'text/javascript';
       try {
         const data = await readFile(join(here, kind));
@@ -91,7 +93,7 @@ export function createDashboard({ token = randomBytes(32).toString('hex'), port 
         const operation = body?.operation;
         if (!snapshot || body.revision !== revision) return send(res, 409, { error: 'Queue changed; refresh and retry' });
         if (waitingAction) return send(res, 409, { error: 'Previous change is still applying' });
-        if (!operation || !['reorder', 'remove', 'add', 'pause', 'resume'].includes(operation.type)) {
+        if (!operation || !['reorder', 'remove', 'add', 'pause', 'resume', 'configure', 'retry-last'].includes(operation.type)) {
           return send(res, 400, { error: 'Unsupported operation' });
         }
         // Limit payload complexity before the mod validates it against actual state.
@@ -104,6 +106,11 @@ export function createDashboard({ token = randomBytes(32).toString('hex'), port 
         if (operation.type === 'add' && (!Array.isArray(operation.texts) || operation.texts.length > 200)) {
           return send(res, 400, { error: 'Invalid batch' });
         }
+        if(operation.type==='configure'){
+          for(const obj of [operation.updates,operation.base])if(!obj||Array.isArray(obj)||Object.keys(obj).length!==CONFIG_KEYS.length||CONFIG_KEYS.some(key=>!Object.hasOwn(obj,key)))throw new Error('invalid');
+          settingsGuard(snapshot,operation.base);configure({config:snapshot.config},operation.updates);
+        }
+        if(operation.type==='retry-last'&&snapshot.running)throw new Error('running');
         waitingAction = { id: nextActionId++, revision, operation };
         return send(res, 202, { accepted: waitingAction.id });
       }

@@ -59,7 +59,7 @@ Kuyruk duraklatılmamışsa Claude boştayken ilk görev hemen başlayabilir. **
 - Ayrı **Adet + Mesaj + Tekrarla** alanı.
 - Bekleyen görevlerde arama, seçim, düzenleme, taşıma ve onaylı silme.
 
-**Ayrıntılar** yalnızca bağlam, geçmiş, istatistikler ve oturum bilgilerini açıp kapatır. Temel kuyruk kontrollerini gizlemez. **Yan panel** ayrı native paneli açar; konumunu ve boyutunu Claude host belirler. **Web**, tarayıcıyı açar. **Kapat**, tam paneli kapatır; bekleyen veya çalışan iş varsa özet çubuğu kalır.
+**Ayrıntılar**, düzenlenebilir gelişmiş ayarlar ile bağlam, geçmiş, istatistikler ve oturum bilgilerini açıp kapatır. Temel kuyruk kontrollerini gizlemez. **Yan panel** ayrı native paneli açar; konumunu ve boyutunu Claude host belirler. **Web**, tarayıcıyı açar. **Kapat**, tam paneli kapatır; bekleyen veya çalışan iş varsa özet çubuğu kalır.
 
 Prompt üstünde sayfa başına **4**, yan panelde **12** görev gösterilir. Çalışan görev yeşil, duraklatılmış kuyruk sarıdır; durum metinle de belirtilir. Tab/Shift+Tab ile odaklanıp Enter ile seçebilirsin. `p` ve `q` kısayolları mod yüzeyi odaktayken çalışır; normal prompt yazarken uygulanmaz.
 
@@ -99,6 +99,24 @@ Native/CLI tercihi yeniden başlatmada korunur. Web panelinin kendi dil menüsü
 - Eşzamanlı değişiklikte eski bir düzenleme yanlış göreve uygulanmak yerine reddedilir.
 
 Web ve Desktop aynı oturumun kuyruğunu gösterir. Bağlantıdaki token özeldir; paylaşma. Panel ayrı bir bulut servisine bağlanmaz. Bağlantı sorunu kalırsa aynı oturumda `/qm web stop`, ardından `/qm web` çalıştır.
+
+## Gelişmiş ayarlar
+
+Native/CLI panelinde **Ayrıntılar**, web panelinde **Gelişmiş ayarlar** bölümünü aç. Mevcut yedi ayar komut yazmadan değiştirilebilir:
+
+| Ayar | Değer |
+| --- | --- |
+| Doğrulama | Kapalı, Marker veya AI |
+| AI doğrulama modeli | Yalnızca AI doğrulamasında kullanılan mevcut model adı/takma adı |
+| Yeniden deneme | 0–5 ek deneme |
+| Denemeler arası süre | 0–600 saniye |
+| Zaman aşımı | 0–86.400 saniye; 0 kapatır |
+| Bağlam eşiği | %0–99; 0 kapatır |
+| Başarısızlıkta | Duraklat veya devam et |
+
+**Ayarları kaydet**, formun tamamını doğrulayıp tek işlemde kaydeder. **Kayıtlı ayarları yükle**, taslağı bırakıp güncel kaydı getirir. Hatalarda taslak korunur; başka panel veya komuttan değiştirilmiş ayarların üstüne sessizce yazılmaz. Kaydetmek kuyruğu devam ettirmez. Çalışan kuyruk görevi varken kayıt engellenir; önce duraklatıp görevin bitmesini bekle.
+
+**Son başarısız görevi kuyruğa al**, son başarısız/zaman aşımı/belirsiz görevi başa ekler ve inceleme için kuyruğu duraklatır. Retry yalnızca başarısız doğrulama veya zaman aşımında uygulanır; API hataları ve kesintiler kuyruğu duraklatır. AI doğrulaması ek model çağrısı kullanır; zaman aşımı tur bittikten sonra değerlendirilir. Gateway/API yapılandırması değişmez.
 
 ## Claude kendi listesini oluşturabilir
 

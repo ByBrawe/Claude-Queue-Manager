@@ -1,3 +1,12 @@
+## 0.7.0 — Editable advanced settings
+
+- Add native/CLI Details and web Advanced settings forms for all seven existing queue settings: verification, AI verifier model, retry count/delay, soft timeout, context threshold and failure policy.
+- Validate and save the form atomically through the existing queue mutex and persistence layer. Keep drafts on rejection; provide explicit reload of saved values and reject stale config edits.
+- Block settings writes during a running queue task. Saving never resumes the queue or changes Gateway/API configuration.
+- Add a manual requeue-last-failed action that leaves the queue paused for review.
+- Translate new labels, validation states and behavior hints in all 20 interface languages. Explain that API errors/interruption pause rather than automatically retry.
+- Extend official host tests, browser acknowledgement tests, native persistence/storage-failure checks, server bounds and concurrent native/web edit coverage. Add open-settings visual captures and save/conflict checks to Playwright QA.
+
 ## 0.6.3 — Restore the full workspace above the prompt
 
 - Open the complete native queue workspace directly above the prompt, including pause/resume, undo, clear, web, task entry, repeat count/message and pending task operations.
