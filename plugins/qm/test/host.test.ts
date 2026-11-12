@@ -2,7 +2,7 @@ import { expect, test, mock } from 'claude-code/testing'
 import { initialState, enqueue } from '../src/queue.mjs'
 
 test('official host registers Claude queue tool and protects the active turn',async($,on)=>{
-  mock.clock(on);mock.store(on)
+  on('process.run',()=>({value:{exitCode:0,stdout:'{}',stderr:''}}));mock.clock(on);mock.store(on)
   let registered=''
   on('session.id',()=>({value:'tool-native'}))
   on('command.register',()=>({value:undefined}))
@@ -21,7 +21,7 @@ test('official host registers Claude queue tool and protects the active turn',as
 // than identity-function stand-ins for Input, Button, and Box.
 for (const surface of ['terminal', 'desktop'] as const) {
   test(`${surface}: selecting one task exposes run-once and cancellable waiting UI`,async($,on)=>{
-    mock.clock(on);mock.store(on,{'claude-queue-manager:queue:single-native':{...enqueue(initialState('single-native'),['A','B','C']),paused:true}})
+    on('process.run',()=>({value:{exitCode:0,stdout:'{}',stderr:''}}));mock.clock(on);mock.store(on,{'claude-queue-manager:queue:single-native':{...enqueue(initialState('single-native'),['A','B','C']),paused:true}})
     on('session.id',()=>({value:'single-native'}));on('session.usage',()=>({value:null}))
     on('turn.start',($,e)=>({turnId:e.turnId}));on('ui.log',()=>({value:undefined}));on('ui.toast',()=>({value:undefined}));on('ui.close',()=>({value:undefined}))
     on('ui.render',()=>({type:'Text',props:{},children:[]}))
@@ -35,7 +35,7 @@ for (const surface of ['terminal', 'desktop'] as const) {
     await panel.unmount()
   })
   test(`${surface}: orphan recovery control is available above the prompt`,async($,on)=>{
-    mock.clock(on)
+    on('process.run',()=>({value:{exitCode:0,stdout:'{}',stderr:''}}));mock.clock(on)
     const saved={...enqueue(initialState('orphan-native'),['A','B']),running:{id:3,text:'Interrupted task',attempts:1},nextId:4}
     mock.store(on,{'claude-queue-manager:queue:orphan-native':saved})
     on('session.id',()=>({value:'orphan-native'}))
@@ -55,7 +55,7 @@ for (const surface of ['terminal', 'desktop'] as const) {
   })
   for (const columns of [48, 110]) {
     test(`${surface} ${columns} columns: panel renders search and task controls`, async ($, on) => {
-      mock.clock(on)
+      on('process.run',()=>({value:{exitCode:0,stdout:'{}',stderr:''}}));mock.clock(on)
       const state = { ...enqueue(initialState('native'), ['A long task with Türkçe characters', 'Second task']), paused: true }
       mock.store(on, { 'claude-queue-manager:queue:native': state })
       on('session.id', () => ({ value: 'native' }))
@@ -131,7 +131,7 @@ for (const surface of ['terminal', 'desktop'] as const) {
     })
   }
   test(`${surface}: empty queue occupies no prompt band`, async ($, on) => {
-    mock.clock(on); mock.store(on)
+    on('process.run',()=>({value:{exitCode:0,stdout:'{}',stderr:''}}));mock.clock(on); mock.store(on)
     on('session.id', () => ({ value: 'empty-native' }))
     on('ui.log', () => ({ value: undefined }))
     on('ui.render', () => ({ type: 'Text', props: {}, children: ['HOST_CONTENT'] }))
@@ -142,4 +142,30 @@ for (const surface of ['terminal', 'desktop'] as const) {
     await band.unmount()
   })
 }
+import { archiveQueue } from '../src/backups.mjs'
+
+test('official host: backup helper receives JSON on stdin and restore requires review',async($,on)=>{
+  mock.clock(on);mock.store(on,{'claude-queue-manager:queue:backup-native':{...enqueue(initialState('backup-native'),['Original A','Original B']),paused:true}})
+  on('session.id',()=>({value:'backup-native'}));on('session.usage',()=>({value:null}))
+  on('ui.log',()=>({value:undefined}));on('ui.toast',()=>({value:undefined}));on('ui.close',()=>({value:undefined}))
+  on('ui.render',()=>({type:'Text',props:{},children:[]}))
+  const archive=archiveQueue(enqueue(initialState('old'),['Recovered first','Recovered second']))
+  let writes=0
+  on('process.run',($,e)=>{
+    const input=JSON.parse(e.init.stdin as string)
+    if(input.action==='write')writes++
+    const data=input.action==='list'?[{id:'123-abcd.json',createdAt:1000,count:2,preview:['Recovered first']}]:input.action==='read'?archive:{path:'private-backup.json'}
+    return {value:{exitCode:0,stdout:JSON.stringify(data),stderr:''}}
+  })
+  await $.command.run({command:'qm',args:'backups'})
+  const pane=await $.ui.mount({plugin:'qm',component:'AbovePrompt',requestId:'backup-ui',surface:'desktop',viewport:{columns:48,rows:50},props:{bodyColumns:48,hasSurvey:false}})
+  expect(await pane.find({key:'qm-backup-123-abcd.json'})).toBeDefined()
+  await pane.press({key:'qm-backup-123-abcd.json'})
+  expect(await pane.find({key:'qm-backup-restore'})).toBeDefined()
+  await pane.press({key:'qm-backup-restore'})
+  expect(writes).toBe(2)
+  expect(await pane.find({type:'Text',text:/Recovered first/})).toBeDefined()
+  expect(await pane.find({type:'Text',text:/DURAKLATILDI/})).toBeDefined()
+  await pane.unmount()
+})
 

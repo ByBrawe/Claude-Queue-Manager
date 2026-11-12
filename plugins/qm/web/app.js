@@ -1,3 +1,4 @@
+import { reliabilityStrings } from '/reliability-locales.mjs';
 import { LANGUAGES, EXTRA_MESSAGES, RECOVERY_MESSAGES, SINGLE_MESSAGES, canonicalLocale } from '/locales.mjs';
 import { configDraft, parseSettings, configSignature, FORM_KEYS } from '/settings.mjs';
 import { settingsStrings } from '/settings-locales.mjs';
@@ -21,6 +22,7 @@ let repeatDraftPending=null;
 let lastFocus=null;
 let settingsEditor=null;
 let settingsPending=null;
+let taskEditor=null,editPending=null,archivePreview=null,restorePending=false,importEpoch=0;
 
 function translateSettings(){
   const m=settingsStrings(locale);
@@ -170,6 +172,7 @@ function taskIds() { return snapshot?.pending.map(p => p.id) || []; }
 function selectedIds() { return taskIds().filter(id => selected.has(id)); }
 function render() {
   renderSettings();
+ renderReliability();
   const focusKey = document.activeElement?.id;
   const m = t(); const s = snapshot;
   const recovering=Boolean(s?.running&&s?.recoverable);
@@ -219,7 +222,7 @@ function render() {
   for (const button of ['move-top','move-bottom','delete-selected']) $(button).disabled = !online || !selection.length || Boolean(pendingActionId);
   $('queue-count').textContent = `${items.length} ${m.countHint}${pendingActionId ? ' · ' + m.waiting : ''}`;
   const filtered = items.filter(x => x.text.toLocaleLowerCase().includes(searchTerm));
-  const holder = $('task-list'); holder.replaceChildren();
+  const holder = $('task-list'); if(taskEditor&&holder.querySelector?.('#task-edit-text')&&snapshot?.pending.some(x=>x.id===taskEditor.id))return; holder.replaceChildren();
   if (!filtered.length) {
     holder.append(el('p','empty',!items.length ? m.empty : m.noMatch));
     return;
@@ -247,8 +250,18 @@ function render() {
     const moveDown = el('button','icon-button','↓'); moveDown.title = m.down; moveDown.setAttribute('aria-label',m.down);
     moveDown.disabled = pendingActionId || index === items.length;
     moveDown.onclick = () => moveOne(task.id, +1);
-    actions.append(moveUp,moveDown);
+    const editButton=el('button','btn soft',reliabilityStrings(locale).edit);editButton.type='button';editButton.disabled=!online||Boolean(pendingActionId);editButton.onclick=()=>{taskEditor={id:task.id,text:task.text,original:task.text};render();document.getElementById('task-edit-text')?.focus();};
+ actions.append(editButton,moveUp,moveDown);
     row.append(grip,check,label,content,actions);
+ if(taskEditor?.id===task.id){
+ const form=el('form','task-edit-form');form.setAttribute('aria-label',editButton.textContent);
+ const label=el('label','',editButton.textContent);label.htmlFor='task-edit-text';
+ const area=el('textarea','');area.id='task-edit-text';area.name='text';area.rows=8;area.maxLength=20000;area.required=true;area.value=taskEditor.text;area.oninput=()=>taskEditor.text=area.value;
+ const save=el('button','btn primary',settingsStrings(locale).apply);save.type='submit';save.disabled=Boolean(pendingActionId);
+ const cancel=el('button','btn soft',t().cancel);cancel.type='button';cancel.onclick=()=>{taskEditor=null;render();};
+ form.append(label,area,save,cancel);form.onsubmit=async e=>{e.preventDefault();if(await action({type:'edit',id:task.id,text:taskEditor.text,baseText:taskEditor.original}))editPending=task.id;};
+ row.append(form);row.draggable=false;
+ }
     if (!searchTerm) {
       row.addEventListener('dragstart', e => {
         dragging = selected.has(task.id) ? selectedIds() : [task.id];
@@ -290,6 +303,8 @@ async function refresh() {
     snapshot = data.state;
     if (pendingActionId && data.lastAck?.id === pendingActionId) {
       const ack = data.lastAck; pendingActionId = null;
+ if(editPending){if(ack.ok)taskEditor=null;editPending=null;}
+ if(restorePending){if(ack.ok){archivePreview=null;$('backup-file').value='';}restorePending=false;}
       if(settingsPending){
         if(ack.ok){settingsEditor=null;}else if(settingsEditor){settingsEditor.error=settingsStrings(locale)[ack.error]||settingsStrings(locale).error+': '+ack.error;}
         settingsPending=null;
@@ -317,9 +332,10 @@ async function action(operation) {
     render();
     return true;
   } catch (error) {
-    const settingsError=settingsStrings(locale)[error.message]||RECOVERY_MESSAGES[locale]?.[error.message]||SINGLE_MESSAGES[locale]?.[error.message];
+    const r=reliabilityStrings(locale);
+    const settingsError=({archiveInvalid:t().invalid,archiveBusy:r.busy,archiveStale:r.stale})[error.message]||settingsStrings(locale)[error.message]||RECOVERY_MESSAGES[locale]?.[error.message]||SINGLE_MESSAGES[locale]?.[error.message];
     if(operation.type==='configure'&&settingsEditor)settingsEditor.error=settingsError||settingsStrings(locale).error+': '+error.message;
-    toast(error.status===409?t().stale:settingsError||error.message,true);await refresh();return false;
+    toast(error.status===409?r.stale:settingsError||error.message,true);await refresh();return false;
   }
 }
 function moveOne(id, delta) {
@@ -385,4 +401,23 @@ if (!token) toast('Open the private URL from /qm web (missing token).',true);
 translated();
 void refresh();
 setInterval(refresh,1200);
+
+function renderReliability(){
+ const r=reliabilityStrings(locale);
+ for(const [id,key]of [['backup-title','backups'],['backup-refresh','backups'],['backup-export','export'],['backup-import-label','import'],['backup-select-label','preview'],['backup-redo','redo'],['backup-restore','restore']])$(id).textContent=r[key];
+ $('backup-cancel').textContent=t().cancel;$('backup-warning').textContent=r.warning;
+ $('backup-preview').hidden=!archivePreview;
+ $('backup-content').textContent=archivePreview?archivePreview.archive.pending.map((x,i)=>(i+1)+'. '+x.text).join('\n\n'):'';
+ $('backup-redo').disabled=!online||pendingActionId||!snapshot?.redoCount||snapshot?.recoverable;
+ $('backup-restore').disabled=!online||pendingActionId||snapshot?.busy||Boolean(snapshot?.running);
+ $('stall-notice').classList.toggle('hidden',!snapshot?.stall);$('stall-notice').textContent=r.stall;
+ $('backup-error').classList.toggle('hidden',!snapshot?.backupIssue);$('backup-error').textContent=snapshot?.backupUnavailable?r.backups+' · Node.js 20+ · '+t().failed:r.backupError;
+}
+$('backup-refresh').onclick=async()=>{try{const data=await request('/api/backups');$('backup-select').replaceChildren(new Option('—',''),...data.entries.map(x=>new Option(new Date(x.createdAt).toLocaleString(locale)+' · '+x.count+' · '+x.preview.join(' / '),x.id)));$('backup-status').textContent=data.entries.length?'':t().empty;}catch(error){$('backup-status').textContent=error.message;}};
+$('backup-select').onchange=async()=>{if(!$('backup-select').value)return;try{const data=await request('/api/backup?id='+encodeURIComponent($('backup-select').value));archivePreview={archive:data.archive,base:JSON.stringify(snapshot.pending)};renderReliability();}catch(error){toast(error.message,true);}};
+$('backup-file').onchange=async()=>{const epoch=++importEpoch;archivePreview=null;renderReliability();const file=$('backup-file').files[0];if(!file||!snapshot)return;try{if(file.size>3*1024*1024)throw new Error(t().invalid);const archive=JSON.parse(await file.text());if(epoch!==importEpoch)return;if(archive.format!=='qm-backup'||archive.version!==1||!Array.isArray(archive.pending)||archive.pending.length>500||archive.pending.some(x=>typeof x.text!=='string'||!x.text.trim()||x.text.length>20000||!['always','success','failure'].includes(x.when)))throw new Error(t().invalid);archivePreview={archive,base:JSON.stringify(snapshot.pending)};renderReliability();}catch(error){if(epoch===importEpoch){archivePreview=null;renderReliability();toast(reliabilityStrings(locale).import+' · '+t().failed,true);}}};
+$('backup-restore').onclick=async()=>{if(archivePreview&&await action({type:'restore-backup',archive:archivePreview.archive,base:archivePreview.base}))restorePending=true;};
+$('backup-cancel').onclick=()=>{importEpoch++;archivePreview=null;renderReliability();};
+$('backup-redo').onclick=()=>void action({type:'redo'});
+$('backup-export').onclick=async()=>{try{const archive=await request('/api/export'),blob=new Blob([JSON.stringify(archive,null,2)],{type:'application/json'}),url=URL.createObjectURL(blob);const link=document.createElement('a');link.href=url;link.download='qm-backup.json';link.click();setTimeout(()=>URL.revokeObjectURL(url),1000);}catch(error){toast(error.message,true);}};
 

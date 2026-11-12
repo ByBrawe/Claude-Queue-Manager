@@ -1,12 +1,12 @@
 {
   "name": "claude-queue-manager",
-  "version": "0.8.0",
+  "version": "0.9.0",
   "private": true,
   "type": "module",
   "description": "Claude Code Desktop Queue Manager mod",
   "license": "MIT",
   "scripts": {
-    "check": "node --check plugins/qm/hooks/register.mjs && node --check plugins/qm/src/commands.mjs && node --check plugins/qm/src/queue.mjs && node --check plugins/qm/src/verification.mjs && node --check plugins/qm/src/view.mjs && node --check plugins/qm/web/server.mjs && node --check plugins/qm/web/app.js && node --check plugins/qm/src/persistence.mjs && node --check plugins/qm/src/restore-lock.mjs && node --check plugins/qm/src/settings.mjs && node --check plugins/qm/src/settings-locales.mjs",
+    "check": "node --check plugins/qm/hooks/register.mjs && node --check plugins/qm/src/commands.mjs && node --check plugins/qm/src/queue.mjs && node --check plugins/qm/src/verification.mjs && node --check plugins/qm/src/view.mjs && node --check plugins/qm/web/server.mjs && node --check plugins/qm/web/app.js && node --check plugins/qm/src/persistence.mjs && node --check plugins/qm/src/restore-lock.mjs && node --check plugins/qm/src/settings.mjs && node --check plugins/qm/src/settings-locales.mjs && node --check plugins/qm/src/backups.mjs && node --check plugins/qm/src/backup-files.mjs && node --check plugins/qm/src/reliability-locales.mjs",
     "test": "node --test plugins/qm/test/*.test.mjs",
     "validate:mod": "claude plugin validate ./plugins/qm",
     "verify": "npm run check && npm test",

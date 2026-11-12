@@ -15,7 +15,7 @@ function fakeHost(shared = new Map(), id = `v040-session-${++seq}`) {
   let tokens=50000, window=200000, modelAnswer='QM_VERDICT:PASS';
   const tools={
     plugin:{root:fileURLToPath(new URL('../',import.meta.url))},
-    process:{run:async(argv)=>{try{return {exitCode:0,stdout:execFileSync(argv[0],argv.slice(1),{encoding:'utf8',stdio:['ignore','pipe','pipe']}),stderr:''};}catch(e){return {exitCode:e.status||1,stdout:e.stdout||'',stderr:e.stderr||String(e)};}}},
+    process:{run:async(argv)=>{if(argv[1]?.endsWith('backup-files.mjs'))return{exitCode:0,stdout:'{}'};try{return {exitCode:0,stdout:execFileSync(argv[0],argv.slice(1),{encoding:'utf8',stdio:['ignore','pipe','pipe']}),stderr:''};}catch(e){return {exitCode:e.status||1,stdout:e.stdout||'',stderr:e.stderr||String(e)};}}},
     session:{id:async()=>id,usage:async()=>({context:{tokens,window}})},
     store:{ get:async k=>shared.get(k),set:async(k,v)=>{shared.set(k,structuredClone(v));},keys:async()=>[...shared.keys()] },
     clock:{now:async()=>clock.now,after:(ms,cb)=>({cancel(){},call:cb,ms})},
@@ -181,7 +181,7 @@ test('mod: paused session can be transferred once into another empty session',as
   const store=new Map();const a=fakeHost(store,'save-session');await a.emit('session.start');await a.cmd('pause');await a.cmd('batch A || B');
   const b=fakeHost(store,'new-session');await b.emit('session.start');
   const sessions=await b.cmd('sessions');assert.match(sessions.text,/save-session/);
-  const restore=await b.cmd('restore save-session');assert.match(restore.text,/transferred 2/);
+  const restore=await b.cmd('restore save-session');assert.match(restore.text,/save-session.*2/);
   assert.deepEqual(b.getState().pending.map(x=>x.text),['A','B']);assert.equal(b.getState().paused,true);
   assert.equal(a.getState().pending.length,2);assert.equal(a.getState().transferredTo,'new-session');
   await a.cmd('resume'); await flush();
@@ -193,7 +193,7 @@ test('mod: restore rejects active source and requires explicit acknowledgement o
   const store=new Map();const src=fakeHost(store,'old-running');await src.emit('session.start');await src.cmd('add A');await flush();
   const dst=fakeHost(store,'next');await dst.emit('session.start');
   assert.match((await dst.cmd('restore old-running')).text,/in-flight/);
-  assert.match((await dst.cmd('restore old-running recover')).text,/transferred/);
+  assert.match((await dst.cmd('restore old-running recover')).text,/old-running/);
   assert.equal(dst.getState().paused,true);assert.equal(dst.getState().pending[0].text,'A');
 });
 

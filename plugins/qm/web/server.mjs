@@ -1,3 +1,5 @@
+import { archiveQueue,parseArchive,restoreArchive } from '../src/backups.mjs';
+import { backupFiles } from '../src/backup-files.mjs';
 /** Optional local-only QM dashboard. No external dependencies or network requests. */
 import http from 'node:http';
 import { readFile } from 'node:fs/promises';
@@ -56,9 +58,9 @@ export function createDashboard({ token = randomBytes(32).toString('hex'), port 
       return send(res, 403, { error: 'Invalid host' });
     }
     const url = new URL(req.url, `http://127.0.0.1:${actualPort}`);
-    const allowed = ['/', '/app.js', '/style.css', '/locales.mjs', '/settings.mjs', '/settings-locales.mjs'];
+    const allowed = ['/', '/app.js', '/style.css', '/locales.mjs', '/settings.mjs', '/settings-locales.mjs', '/reliability-locales.mjs'];
     if (req.method === 'GET' && allowed.includes(url.pathname)) {
-      const kind = url.pathname === '/' ? 'index.html' : ['/locales.mjs','/settings.mjs','/settings-locales.mjs'].includes(url.pathname) ? '../src'+url.pathname : url.pathname.slice(1);
+      const kind = url.pathname === '/' ? 'index.html' : ['/locales.mjs','/settings.mjs','/settings-locales.mjs','/reliability-locales.mjs'].includes(url.pathname) ? '../src'+url.pathname : url.pathname.slice(1);
       const type = kind.endsWith('.html') ? 'text/html' : kind.endsWith('.css') ? 'text/css' : 'text/javascript';
       try {
         const data = await readFile(join(here, kind));
@@ -81,7 +83,10 @@ export function createDashboard({ token = randomBytes(32).toString('hex'), port 
       return send(res, 403, { error: 'Cross-origin requests denied' });
     }
     try {
-      if (req.method === 'GET' && url.pathname === '/api/state') {
+      if(req.method==='GET'&&url.pathname==='/api/backups')return send(res,200,{entries:await backupFiles('list',snapshot.sessionId)});
+ if(req.method==='GET'&&url.pathname==='/api/backup')return send(res,200,{archive:await backupFiles('read',snapshot.sessionId,url.searchParams.get('id'))});
+ if(req.method==='GET'&&url.pathname==='/api/export')return send(res,200,archiveQueue(snapshot),{'Content-Disposition':'attachment; filename="qm-backup.json"'});
+ if (req.method === 'GET' && url.pathname === '/api/state') {
         return send(res, 200, { state: snapshot, revision, waiting: Boolean(waitingAction), lastAck, lastModContact });
       }
       if (req.method === 'GET' && url.pathname === '/api/action') {
@@ -93,7 +98,7 @@ export function createDashboard({ token = randomBytes(32).toString('hex'), port 
         const operation = body?.operation;
         if (!snapshot || body.revision !== revision) return send(res, 409, { error: 'Queue changed; refresh and retry' });
         if (waitingAction) return send(res, 409, { error: 'Previous change is still applying' });
-        if (!operation || !['reorder', 'remove', 'add', 'pause', 'resume', 'configure', 'retry-last', 'recover', 'run-one', 'cancel-one'].includes(operation.type)) {
+        if (!operation || !['reorder', 'remove', 'add', 'pause', 'resume', 'configure', 'retry-last', 'recover', 'run-one', 'cancel-one','edit','redo','restore-backup'].includes(operation.type)) {
           return send(res, 400, { error: 'Unsupported operation' });
         }
         // Limit payload complexity before the mod validates it against actual state.
@@ -106,7 +111,10 @@ export function createDashboard({ token = randomBytes(32).toString('hex'), port 
         if (operation.type === 'add' && (!Array.isArray(operation.texts) || operation.texts.length > 200)) {
           return send(res, 400, { error: 'Invalid batch' });
         }
-        if(operation.type==='configure'){
+        if(operation.type==='edit'&&(!Number.isSafeInteger(operation.id)||!snapshot.pending.some(x=>x.id===operation.id)||typeof operation.text!=='string'||!operation.text.trim()||operation.text.length>20000))throw new Error('archiveInvalid');
+ if(operation.type==='edit'&&snapshot.pending.find(x=>x.id===operation.id).text!==operation.baseText)throw new Error('archiveStale');
+ if(operation.type==='restore-backup'){parseArchive(operation.archive);restoreArchive(snapshot,operation.archive,operation.base);}
+ if(operation.type==='configure'){
           for(const obj of [operation.updates,operation.base])if(!obj||Array.isArray(obj)||Object.keys(obj).length!==CONFIG_KEYS.length||CONFIG_KEYS.some(key=>!Object.hasOwn(obj,key)))throw new Error('invalid');
           settingsGuard(snapshot,operation.base);configure({config:snapshot.config},operation.updates);
         }
@@ -128,6 +136,7 @@ export function createDashboard({ token = randomBytes(32).toString('hex'), port 
         revision = body.revision;
         snapshot = {
           defaults: { ...DEFAULT_CONFIG },
+ backupIssue:body.state.backupIssue||null,backupUnavailable:Boolean(body.state.backupUnavailable),stall:body.state.stall||null,redoCount:body.state.redoCount||0,
           sessionId: body.state.sessionId ?? null,
           locale: body.state.locale ?? null,
           pending: body.state.pending,

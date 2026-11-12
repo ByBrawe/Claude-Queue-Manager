@@ -207,3 +207,16 @@ Resmi host testleri dar ve geniş terminal/Desktop eleman protokolünü doğrula
 
 [MIT](../../LICENSE) · © 2026 ByBrawe.
 
+## 0.9.0: Yedekleme ve güvenli düzenleme
+
+- **Ayrıntılar → Yedekler → Önizleme → Bekleyen görevleri geri yükle:** Önce görev sayısını ve metin örneklerini incele, sonra onayla. Geri yükleme bekleyenleri değiştirir ve kuyruğu duraklatır. Ayarlar ve geçmiş korunur; görevler yeni kimlik alır. Yedekteki aktif görev dahil edilmez. Mevcut askıda görevi ayrıca Kurtar ile yönet.
+- Bekleyen liste değişmeden önce ve değiştikten sonra **~/.claude/qm-backups/<oturum-özeti>/** altında otomatik JSON yedeği alınır. Oturum başına en fazla 50 otomatik yedek / 32 MiB tutulur. Elle dışa aktarılan dosyalar otomatik silinmez. Dosyalar görev metinlerini içerir; özel tut. Bu özellik kurulmadan önce kaybolmuş görevleri geriye dönük kurtaramaz.
+- **Yinele:** Geri alınan değişikliği tekrar uygular ve duraklatılmış bırakır. Yeni düzenleme Yinele dalını temizler. Gönderilen görevler eski Geri al/Yinele kayıtlarından tekrar çalıştırılamaz.
+- **Web düzenleme:** Görev satırındaki çok satırlı kutudan uzun metni düzenle. Taslak bağlantı hatasında veya başarısız kayıtta korunur. Başka panelde değişen görev eski metinle ezilmez.
+- **JSON içe/dışa aktarma:** Web panelindeki Yedekler bölümünden dosya indir veya seç; önizledikten sonra geri yükle. Native/CLI: `/qm backups`, `/qm export`, `/qm import "C:/yol/gorevler.json"`, `/qm redo`. İçe aktarma doğrudan görev başlatmaz.
+- **Oturum seçici:** Ayrıntılar → Oturumlar bölümünde kayıtlı kuyrukları ve metin örneklerini inceleyip aktarımı onayla. Hedef kuyruk ve geçmişi boş olmalıdır. Kaynaktaki askıda iş tekrarlanabilir.
+- **Uzayan tur uyarısı:** Ayarlanmış timeout süresi, kapalıysa 30 dakika geçince uyarı gösterilir. İşin kesin takıldığını iddia etmez; turu kesmez veya yeni görev göndermez. Mevcut timeout sonucu yine tur sonunda değerlendirilir.
+- Yeni kontroller ve uyarılar 20 dilde kullanılabilir. Host ve işletim sistemi hata ayrıntıları özgün dilinde kalabilir.
+
+Dosya yedekleme, web paneli gibi yerel **Node.js 20+** gerektirir. Node başlatılamıyorsa yedek kullanılamıyor uyarısı görünür; mevcut native kuyruk kullanılmaya devam eder. Disk dolması/izin hatası gibi diğer yedekleme hatalarında kayıtlı listeyi değiştirecek işlem durdurulur. Sorunu düzeltip yeniden dene. Node kurduktan sonra eklentileri yeniden yükle. Gateway/API ayarları değiştirilmez.
+

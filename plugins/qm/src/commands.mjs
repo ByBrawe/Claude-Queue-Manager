@@ -23,6 +23,11 @@ export function parseCommand(raw = '') {
   if (/^(resume|start|go)$/i.test(args)) return { type: 'resume' };
   if (/^clear$/i.test(args)) return { type: 'clear' };
   if (/^undo$/i.test(args)) return { type: 'undo' };
+ if(/^redo$/i.test(args))return {type:'redo'};
+ if(/^backups?$/i.test(args))return {type:'backups'};
+ if(/^export$/i.test(args))return {type:'export'};
+ const imported=/^import\s+([\s\S]+)$/i.exec(args);
+ if(imported)return {type:'import',path:imported[1].replace(/^"|"$/g,'')};
   if(/^run\s+cancel$/i.test(args))return {type:'cancel-one'};
   const run=/^run\s+(\d+)$/i.exec(args);
   if(run){const position=Number(run[1]);if(!Number.isSafeInteger(position)||position<1)throw new Error('Use: /qm run <pending position>');return {type:'run-one',position};}
@@ -91,7 +96,7 @@ export function parseCommand(raw = '') {
   if (mv) return { type: 'mv', from: num(mv[1]), to: num(mv[2]) };
   const edit = /^edit\s+(\S+)\s+([\s\S]+)$/i.exec(args);
   if (edit) return { type: 'edit', position: num(edit[1]), text: edit[2] };
-  if (/^(run|repeat|batch|mv|move|rm|remove|delete|edit|front|before|verify|retry|timeout|context|onfail|if|restore|history|lang|web)\b/i.test(args)) {
+  if (/^(redo|backup|backups|export|import|run|repeat|batch|mv|move|rm|remove|delete|edit|front|before|verify|retry|timeout|context|onfail|if|restore|history|lang|web)\b/i.test(args)) {
     throw new Error('Incomplete command; see /qm help. Use /qm -- <text> to queue literal text.');
   }
   return { type: 'add', texts: [args] };
@@ -105,6 +110,8 @@ export function brief(state, pageSize = 12) {
   return lines.join('\n');
 }
 export const HELP = [
+  '/qm backups | export | import <file.json> — Preview / export / import pending work',
+  '/qm redo — Redo an undone queue edit, stay paused',
   '/qm                          Open manager above the prompt',
   '/qm side | inline | close     Choose side pane, inline manager, or close',
   '/qm add <task>               Queue one task',
@@ -138,6 +145,8 @@ export const HELP = [
 ].join('\n');
 
 export const HELP_TR = [
+  '/qm backups | export | import <dosya.json> — Yedekleri önizle / dışa veya içe aktar',
+  '/qm redo — Geri alınan değişikliği yinele; kuyruk duraklatılır',
 '/qm — Mesaj kutusunun üstünde yönetimi aç',
 '/qm side | inline | close — Yan panel / satır içi görünüm / kapat',
 '/qm add <görev> — Tek görev ekle',

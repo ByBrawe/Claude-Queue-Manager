@@ -1,10 +1,12 @@
+import { archiveQueue, parseArchive, restoreArchive, stallInfo } from '../src/backups.mjs';
+import { reliabilityStrings } from '../src/reliability-locales.mjs';
 import { canonicalLocale } from '../src/locales.mjs';
 import { configDraft, parseSettings, configSignature, settingsGuard } from '../src/settings.mjs';
 import { settingsStrings } from '../src/settings-locales.mjs';
 // Queue Manager is a self-contained Claude Code mod.
 // It never injects queued text into the current turn. Each item is submitted
 // as a new user turn after a successful main turn.complete event.
-import { DEFAULT_CONFIG, initialState, normalizeState, normalizeUsage, enqueue, remove, move, edit, clear, undo,
+import { DEFAULT_CONFIG, initialState, normalizeState, normalizeUsage, enqueue, remove, move, edit, clear, undo, redo,
   claim, settleTurn, recordContext, configure, statsText, retryLast, rejectSubmission, recover,
   removeByIds, reorderByIds, moveSelected, runOne, cancelOne } from '../src/queue.mjs';
 import { MARKER_NOTE, verdictFromText, parseAiVerdict, buildVerificationPrompt } from '../src/verification.mjs';
@@ -51,12 +53,43 @@ let carryOver = false;
 let verificationEpoch = 0;
 let activeTurnId = null;
 let liveTurnActive = false;
+let backupPanel=null,backupIssue=null,stallTimer=null,liveStartedAt=null;
+let backupUnavailable=false;
+let stallNotified=false;
 
 // Recovery only requeues an orphan; it never interrupts or dispatches a live turn.
 function recoverWithHost(state) {
   return {...recover(state),busy:liveTurnActive||verificationRunning};
 }
 
+async function backupIO($,action,payload=null) {
+ const result=await $.process.run(['node',$.plugin.root+'/src/backup-files.mjs'],{stdin:JSON.stringify({action,session:cachedSessionId||await $.session.id(),payload}),timeoutMs:10000});
+ if(result.exitCode!==0||result.isStdoutTruncated)throw new Error(result.stderr||'archiveInvalid');
+ return JSON.parse(result.stdout);
+}
+async function preserve($,state) {
+ try{if(!$.plugin.root)return;}catch{return;}
+ if(backupUnavailable)return;
+ try{await backupIO($,'write',archiveQueue(state,await $.clock.now()));backupIssue=null;}
+ catch(error){
+  const unavailable=/spawn.*node.*ENOENT|command.*not found.*node|node.*not (?:found|recognized)|process.*CLI only/i.test(String(error.message));
+  backupUnavailable=unavailable;
+  backupIssue=unavailable?reliabilityStrings(language).backups+' · Node.js 20+ · '+uiStrings(language).unavailable:reliabilityStrings(language).backupError;
+  try{$.ui.toast(backupIssue);$.ui.invalidate('ui.render');}catch{}
+  if(!unavailable)throw new Error(backupIssue);
+ }
+}
+async function openBackups($){try{backupPanel={entries:await backupIO($,'list')};}catch(error){backupPanel={error:error.message};}redraw($);}
+async function previewBackup($,id){const panel=backupPanel,session=cachedSessionId;try{const data=await backupIO($,'read',id),state=await readState($);if(backupPanel!==panel||cachedSessionId!==session)return;backupPanel={...panel,preview:parseArchive(data),base:JSON.stringify(state.pending)};redraw($);}catch(error){notify($,error.message);}}
+async function applyBackup($){const preview=backupPanel;await change($,(s,now)=>restoreArchive(s,preview.preview,preview.base,now));backupPanel=null;notify($,reliabilityStrings(language).saved);redraw($);}
+function armStall($){
+ if(stallTimer){stallTimer.cancel();stallTimer=null;}if(!liveTurnActive)return;
+ stallTimer=$.clock.after(30000,async()=>{stallTimer=null;
+ try{const state=await readState($),now=await $.clock.now();
+ if(!stallNotified&&liveStartedAt!==null&&now-liveStartedAt>=(state.config.timeoutMs||1800000)){stallNotified=true;$.ui.toast(reliabilityStrings(language).stall);}
+ $.ui.invalidate('ui.render');if(web)await sendWebSnapshot($);
+ }catch(error){logError($,error);}armStall($);});
+}
 function reportStartupIssue($, stage, error) {
   const reason = String(error?.message ?? error);
   const message = `QM startup (${stage}): ${reason}`;
@@ -129,17 +162,19 @@ async function save($, next) {
   const key = STORE_PREFIX + cachedSessionId;
   const persisted = await $.store.get(key);
   if (persisted?.transferredTo && !next.transferredTo) throw new Error('This queue was transferred to another session.');
+  if(persisted && JSON.stringify(persisted.pending)!==JSON.stringify(next.pending))await preserve($,persisted);
   let durable = boundedState({ ...next, updatedAt: await $.clock.now() });
   try { await $.store.set(key, durable); }
   catch (error) {
     // Other sessions consume the same store. Retry quota errors without optional
     // history; failed writes must never replace the last durable in-memory state.
     if (!/4\s*MiB|quota|storage|store.*(limit|size|full)/i.test(String(error?.message ?? error))) throw error;
-    durable = { ...durable, undo: [], history: [], done: [] };
+    durable = { ...durable, undo: [], redo: [], history: [], done: [] };
     try { await $.store.set(key, durable); }
     catch { throw new Error('Plugin storage is full. Shorten this batch or clear old saved queues; existing work is unchanged.'); }
   }
   cached = durable;
+ if(!persisted||JSON.stringify(persisted.pending)!==JSON.stringify(durable.pending)){try{await preserve($,durable);}catch(error){logError($,error);try{$.ui.toast(backupIssue);}catch{}}}
   webRevision++;
   if (web) await sendWebSnapshot($);
   $.ui.invalidate('ui.render');
@@ -167,6 +202,7 @@ async function sendWebSnapshot($) {
       state: { sessionId: cachedSessionId, locale: language, pending: cached.pending, running: cached.running, done: cached.done,
         paused: cached.paused, busy: cached.busy, stats: cached.stats, recoverable:cached.recoverable,
         hostActive:liveTurnActive||verificationRunning, singleRun:cached.singleRun,
+ backupIssue,backupUnavailable,stall:stallInfo(cached,await $.clock.now())||(liveTurnActive&&liveStartedAt!==null&&(await $.clock.now())-liveStartedAt>=(cached.config.timeoutMs||1800000)?{elapsed:(await $.clock.now())-liveStartedAt}:null),undoCount:cached.undo.length,redoCount:(cached.redo||[]).length,
         context, config: cached.config, pauseReason: cached.pauseReason,
         history: cached.history.slice(0, 12) },
       ...(webAck ? { ack: webAck } : {})
@@ -190,6 +226,9 @@ async function syncWebAction($) {
       if (op.type === 'reorder') return reorderByIds(state, op.ids);
       if (op.type === 'remove') return removeByIds(state, op.ids);
       if (op.type === 'add') return enqueue(state, op.texts);
+ if(op.type==='edit'){const at=state.pending.findIndex(t=>t.id===op.id);if(at<0||state.pending[at].text!==op.baseText)throw new Error('archiveStale');return edit(state,at+1,op.text);}
+ if(op.type==='redo'){if(state.recoverable)throw new Error('recoveryState');return redo(state);}
+ if(op.type==='restore-backup')return restoreArchive(state,op.archive,op.base,now);
       if (op.type === 'configure') { settingsGuard(state,op.base); return configure(state,op.updates); }
       if (op.type === 'retry-last') { if(state.running)throw new Error('running'); return retryLast(state,now); }
       if (op.type === 'recover') return recoverWithHost(state);
@@ -364,23 +403,24 @@ function formatHistory(state, count = 15) {
 async function listSessions($) {
   let keys;
   try { keys = (await $.store.keys()).filter(k => k.startsWith(STORE_PREFIX)); }
-  catch (error) { logError($, error); return 'QM: session listing unavailable in this host'; }
+  catch (error) { logError($, error); return 'QM: '+uiStrings(language).sessionsLabel+' · '+uiStrings(language).unavailable; }
   const sessions = await Promise.all(keys.map(async key => {
     const data = await $.store.get(key);
     return { id: key.slice(STORE_PREFIX.length), data };
   }));
   const rows = sessions.filter(x => x.data?.pending?.length || x.data?.running)
     .sort((a,b) => (b.data.updatedAt || 0) - (a.data.updatedAt || 0)).slice(0,20);
-  return rows.length ? ['QM saved sessions (restore requires a paused source and empty target):',
+  return rows.length ? ['QM · '+uiStrings(language).sessionsLabel+' · /qm restore <id>:',
     ...rows.map(x => `${x.id} · ${x.data.pending.length} pending${x.data.running ? ' + in-flight' : ''} · ${x.data.paused ? 'paused' : 'active'}`)
   ].join('\n') : 'QM: no non-empty saved queue sessions';
 }
 
-async function restoreSession($, sessionId, acknowledgeRunning) {
+async function restoreSession($, sessionId, acknowledgeRunning, expected=null) {
   return exclusive(async () => {
     const target = await load($);
     const targetId = await $.session.id();
     if (sessionId === targetId) throw new Error('Cannot restore the current session into itself');
+    if (target.busy || liveTurnActive)throw new Error(reliabilityStrings(language).busy);
     if (target.pending.length || target.running || target.history.length) throw new Error('Target session must have an empty QM queue and history');
     const key = STORE_PREFIX + sessionId;
     const owner = `${targetId}:${await $.clock.now()}:${Math.random().toString(36).slice(2)}`;
@@ -390,22 +430,23 @@ async function restoreSession($, sessionId, acknowledgeRunning) {
     try {
     const raw = await $.store.get(key);
     if (!raw) throw new Error('No saved queue with that session ID');
+    if(expected!==null&&expected!==JSON.stringify(raw))throw new Error(reliabilityStrings(language).stale);
     if (raw.transferredTo && raw.transferredTo !== targetId) throw new Error(`Queue was already transferred to ${raw.transferredTo}`);
     if (!raw.paused && !raw.running) throw new Error('Source queue is active. Pause it in its original session first.');
     if (raw.running && !acknowledgeRunning) throw new Error('Source has an in-flight task. Use: /qm restore SESSION_ID recover (may duplicate work)');
     let source = normalizeState(raw, sessionId, await $.clock.now());
     if (source.running) source = recover(source);
     if (!source.pending.length) throw new Error('Source has no pending work');
-    const transferred = { ...source, sessionId: targetId, paused: true,
+    const transferred = { ...source, redo:[], sessionId: targetId, paused: true,
       pauseReason: 'restored-needs-review', transferredTo: null, busy: false, running: null, undo: [] };
     // First retire the original queue to prevent two sessions from running copied tasks.
     // Keep a frozen source copy: a crash between the two durable writes cannot
     // destroy the only copy of the work. Only the named target may retry it.
-    const retired = { ...source, undo: [], paused: true, transferredTo: targetId };
+    const retired = { ...source, redo:[], undo: [], paused: true, transferredTo: targetId };
     await $.store.set(key, retired);
     try { await save($, transferred); }
     catch (error) { await $.store.set(key, raw); throw error; }
-    return `QM: transferred ${transferred.pending.length} task(s) from ${sessionId}; queue paused for review. /qm resume when safe.`;
+    return `QM: ${uiStrings(language).sessionsLabel} ${sessionId} · ${transferred.pending.length} ${uiStrings(language).pending} · ${uiStrings(language).paused}. /qm resume`;
     } finally {
       const unlock = await $.process.run(['node', lockScript, 'release', sessionId, owner], { timeoutMs: 6000 });
       if (unlock.exitCode !== 0) logError($, unlock.stderr || 'Restore lock release failed; inspect the stale lock before retrying.');
@@ -427,7 +468,10 @@ async function perform($, text) {
     return '';
   }
   if (intent.type === 'help') { if(language==='tr')return HELP_TR; if(language==='en')return HELP; const t=uiStrings(language); return [['/qm',t.title],['/qm add / batch',t.addButton],['/qm repeat',t.repeatButton],['/qm run / run cancel',t.runOne],['/qm pause',t.pause],['/qm resume',t.resume],['/qm edit / rm / mv',t.edit+' / '+t.remove+' / '+t.moveTop],['/qm clear / undo',t.clear+' / '+t.undo],['/qm verify / retry / timeout',t.verifyLabel+' / '+t.retryLabel+' / '+t.timeoutLabel],['/qm context',t.contextLabel],['/qm if success|failure',t.verifyLabel],['/qm history / stats',t.historyLabel+' / '+t.analytics],['/qm sessions / recover / restore',t.sessionsLabel],['/qm web',t.openWeb],['/qm lang',t.language]].map(x=>x.join(' — ')).join('\n'); }
-  if (intent.type === 'web') return startWeb($);
+  if(intent.type==='backups'){await readState($);await openBackups($);await openManager($);return '';}
+ if(intent.type==='export'){await readState($);const saved=await backupIO($,'export',archiveQueue(await readState($)));return reliabilityStrings(language).saved+': '+saved.path;}
+ if(intent.type==='import'){await readState($);const data=await backupIO($,'import',intent.path),state=await readState($);backupPanel={entries:[],preview:data,base:JSON.stringify(state.pending)};await openManager($);return '';}
+ if (intent.type === 'web') return startWeb($);
   if (intent.type === 'web-stop') { await stopWeb($); return 'QM: web dashboard stopped'; }
   if (intent.type === 'sessions') return listSessions($);
   if (intent.type === 'restore') return restoreSession($, intent.sessionId, intent.recover);
@@ -456,7 +500,8 @@ async function perform($, text) {
       case 'mv': return move(state, intent.from, intent.to);
       case 'edit': return edit(state, intent.position, intent.text);
       case 'clear': return clear(state);
-      case 'undo': return undo(state);
+      case 'undo': if(state.recoverable)throw new Error('recoveryState');return {...undo(state),paused:true,pauseReason:'user'};
+ case 'redo': if(state.recoverable)throw new Error('recoveryState');return redo(state);
       case 'recover': return recoverWithHost(state);
       case 'run-one': return runOne({...state,busy:state.busy||liveTurnActive},state.pending[intent.position-1]?.id);
       case 'cancel-one': return cancelOne(state);
@@ -481,7 +526,7 @@ async function perform($, text) {
 
 async function safePerform($, args) {
   try { return await perform($, args); }
-  catch (error) { const key=error?.message;return 'QM error: '+(['singleMissing','singleBusy','recoveryState'].includes(key)?uiStrings(language)[key]:String(key??error)); }
+  catch (error) { const key=error?.message,r=reliabilityStrings(language);return 'QM error: '+(key==='archiveBusy'?r.busy:key==='archiveStale'?r.stale:key==='archiveInvalid'?r.import+' · '+uiStrings(language).unavailable:['singleMissing','singleBusy','recoveryState'].includes(key)?uiStrings(language)[key]:String(key??error)); }
 }
 
 const shortened = (text, limit = 92) => text.length <= limit ? text : text.slice(0, limit - 3) + '...';
@@ -597,6 +642,7 @@ async function buildPane($, e) {
   // Details controls telemetry only; it must never hide core queue actions.
   const expanded = true;
   const t = uiStrings(language);
+  const r = reliabilityStrings(language);
   const state = await readState($);
   const needsRecovery=Boolean(state.running&&state.recoverable);
   const liveContext = normalizeUsage(await readUsage($));
@@ -670,7 +716,8 @@ async function buildPane($, e) {
     button(Button, 'qm-stats', t.analytics, () => act($, 'stats')),
     button(Button, 'qm-context', t.contextLabel, () => act($, 'context')),
     button(Button, 'qm-history', t.historyLabel, () => act($, 'history')),
-    button(Button, 'qm-sessions', t.sessionsLabel, () => act($, 'sessions'))
+    button(Button,'qm-backups',r.backups,()=>openBackups($)),button(Button,'qm-export',r.export,()=>act($,'export')),
+ button(Button,'qm-sessions',t.sessionsLabel,async()=>{const entries=[];try{for(const key of await $.store.keys()){if(!key.startsWith(STORE_PREFIX)||key===STORE_PREFIX+state.sessionId)continue;const data=await $.store.get(key);if(data&&!data.transferredTo&&(data.pending?.length||data.running))entries.push({id:key.slice(STORE_PREFIX.length),data});}backupPanel={sessions:entries.slice(0,20)};}catch(error){backupPanel={error:error.message};}redraw($);})
   ] });
   const active = state.running
     ? node(Text, `▶ ${t.active}: ${shortened(state.running.text, 115)}`, { color: 'green' })
@@ -826,6 +873,16 @@ async function buildPane($, e) {
     Box({ flexDirection: 'row', flexWrap: 'wrap', columnGap: 2, children: [title, langControl,
       button(Button, 'qm-close', t.close, () => act($, 'close'), { plain: true, hotkey: 'q', role: 'dismiss' }),
       button(Button, 'qm-side', t.side || t.openWeb, () => act($, 'side'), { plain: true })] }),
+    ...(backupIssue?[node(Text,backupIssue,{color:'red'})]:[]),
+ ...((stallInfo(state,await $.clock.now())||liveTurnActive&&liveStartedAt!==null&&(await $.clock.now())-liveStartedAt>=(state.config.timeoutMs||1800000))?[node(Text,r.stall,{color:'yellow'})]:[]),
+ ...(backupPanel?[block(Box,[node(Text,r.backups,{bold:true}),...(backupPanel.error?[node(Text,backupPanel.error,{color:'red'})]:[]),
+ ...(backupPanel.entries||[]).slice(backupPanel.offset||0,(backupPanel.offset||0)+12).map(entry=>button(Button,'qm-backup-'+entry.id,new Date(entry.createdAt).toISOString()+' · '+entry.count+' · '+shortened(entry.preview.join(' / '),60),()=>previewBackup($,entry.id))),
+ ...(backupPanel.sessions||[]).map(entry=>block(Box,[node(Text,entry.id+' · '+entry.data.pending.length+' '+t.pending),node(Text,shortened(entry.data.pending.slice(0,3).map(x=>x.text).join(' / '),150)),button(Button,'qm-session-'+entry.id,r.preview,()=>{backupPanel={session:entry};redraw($);})])),
+ ...(backupPanel.session?[node(Text,backupPanel.session.id+' · '+t.recoveryHint,{color:'yellow'}),button(Button,'qm-session-restore',r.restore,async()=>{try{await restoreSession($,backupPanel.session.id,true,JSON.stringify(backupPanel.session.data));backupPanel=null;}catch(error){notify($,error.message);}redraw($);})]:[]),
+ ...(backupPanel.preview?[node(Text,r.warning,{color:'yellow'}),node(Text,backupPanel.preview.pending.length+' '+t.pending),...backupPanel.preview.pending.slice(0,8).map((x,i)=>node(Text,(i+1)+'. '+shortened(x.text,160))),button(Button,'qm-backup-restore',r.restore,async()=>{try{await applyBackup($);}catch(error){notify($,error.message==='archiveBusy'?r.busy:error.message==='archiveStale'?r.stale:error.message);}})]:[]),
+ ...((backupPanel.entries?.length||0)>12?[button(Button,'qm-backup-prev',t.prev,()=>{backupPanel.offset=Math.max(0,(backupPanel.offset||0)-12);redraw($);}),button(Button,'qm-backup-next',t.next,()=>{backupPanel.offset=(backupPanel.offset||0)+12>=backupPanel.entries.length?0:(backupPanel.offset||0)+12;redraw($);})]:[]),
+ button(Button,'qm-backup-close',t.close,()=>{backupPanel=null;redraw($);})])]:[]),
+ ...(!needsRecovery&&state.redo?.length?[button(Button,'qm-redo',r.redo,()=>act($,'redo'))]:[]),
     stats, ...(expanded ? [actionRow] : [button(Button,'qm-toggle',state.paused?t.resume:t.pause,()=>act($,state.paused?'resume':'pause'),{variant:'primary',hotkey:'p'})]), ...(recoveryNotice?[recoveryNotice]:[]),
     ...(singleNotice?[singleNotice]:[]),
     ...(needsRecovery?[]:state.running ? [active] : state.busy ? [node(Text,t.waiting,{dimColor:true})] : !inline && state.pending.length===0 ? [node(Text, t.empty, {dimColor:true})] : []),
@@ -875,7 +932,7 @@ export function register(on) {
     try {
       const incomingSession = await $.session.id();
       if (cachedSessionId !== incomingSession) {
-        activeTurnId=null;liveTurnActive=false;undoArmed=false;
+        activeTurnId=null;liveTurnActive=false;liveStartedAt=null;undoArmed=false;backupPanel=null;backupIssue=null;backupUnavailable=false;if(stallTimer){stallTimer.cancel();stallTimer=null;}
         page = 0; searchText = ''; bulkDraft = ''; repeatDraft = '';
         editDraft = ''; editId = null; clearArmed = false;
         groupRemoveArmed = false; selectedIds.clear();
@@ -894,7 +951,7 @@ export function register(on) {
   on('turn.start', async ($, e, next) => {
     if (e.agentId === undefined) {
       activeTurnId = e.turnId ?? null;
-      liveTurnActive = true;
+      liveTurnActive = true;stallNotified=false;liveStartedAt=await $.clock.now();armStall($);
       await change($, state => ({ ...state, busy: true,
         running: state.running && !state.running.turnId && !verificationRunning
           ? { ...state.running, turnId: e.turnId } : state.running }));
@@ -905,7 +962,7 @@ export function register(on) {
   on('turn.complete', async ($, e, next) => {
     const result = await next(e);
     if (e.agentId !== undefined) return result;
-    if (!e.turnId || !activeTurnId || activeTurnId === e.turnId) { activeTurnId=null;liveTurnActive=false; }
+    if (!e.turnId || !activeTurnId || activeTurnId === e.turnId) { activeTurnId=null;liveTurnActive=false;liveStartedAt=null;if(stallTimer){stallTimer.cancel();stallTimer=null;} }
     if (verificationRunning) return result;
     const state = await readState($);
     const epoch = verificationEpoch;
@@ -956,6 +1013,7 @@ export function register(on) {
     detailsOpen = false;
     activeTurnId = null;
     liveTurnActive = false;
+    liveStartedAt=null;if(stallTimer){stallTimer.cancel();stallTimer=null;}
     verificationEpoch++;
     verificationRunning = false;
     cancelRetryTimer();

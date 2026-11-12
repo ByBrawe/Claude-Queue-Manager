@@ -10,7 +10,7 @@
       "name": "qm",
       "source": "./plugins/qm",
       "description": "One-turn-at-a-time queue with recovery, retries, verification, context guards and analytics",
-      "version": "0.8.0",
+      "version": "0.9.0",
       "category": "productivity"
     }
   ]

@@ -29,6 +29,20 @@ Documentation and interface controls are available in 20 languages. Select a gui
 - **Recovery and history:** inspect saved sessions, recover orphaned tasks, transfer paused queues and view outcomes.
 - **20 interface languages:** native/CLI language selection and a separate browser preference; Arabic and Persian use RTL layout on the web.
 
+
+## 0.9.0: backups and safer editing
+
+- **Backups → Preview → Restore pending tasks** is available in the native panel's Details section. A preview shows the task count and excerpts before any change. Restore replaces pending work, assigns fresh IDs and stays paused; review it before resuming. Existing history and settings stay unchanged. The archived in-flight task is excluded; use Recover for the current orphan separately.
+- Automatic JSON snapshots are written before and after pending-list changes, outside the shared plugin store, in **~/.claude/qm-backups/<hashed-session>/**. Up to 50 automatic snapshots / 32 MiB are retained per session. Manual exports are not pruned. These files contain task text; keep them private. Backups created by this release cannot recover text already lost before installation.
+- **Redo** restores an undone queue change and stays paused. New queue edits clear its branch. Started task IDs are removed from both undo and redo snapshots, so old snapshots cannot silently replay dispatched work.
+- **Web editing:** each pending row has a multiline editor. Drafts survive polling and failed saves. A task changed in another panel requires a fresh edit; stale text cannot overwrite it.
+- **Import/export:** use the web Backups section to download JSON, select a JSON file, preview it and confirm restore. Native/CLI: `/qm backups`, `/qm export`, `/qm import "C:/path/tasks.json"`, `/qm redo`. Import opens a preview; it does not immediately change or run the queue.
+- **Session picker:** native Details → Sessions lists saved queues and task excerpts. Preview and explicitly confirm a transfer. Existing protections still require an empty target and an eligible source; an in-flight task may repeat.
+- **Long-turn warning:** after the configured soft timeout, or 30 minutes with no timeout, an observational warning appears. It does not claim the turn is stalled, cancel it or send another prompt. Outcome timeout evaluation still happens when the turn ends.
+- New controls and warning text are available in all 20 interface languages. Low-level host/OS diagnostics can retain their original wording.
+
+Automatic file backups require local **Node.js 20+**, like the web dashboard. If Node cannot be launched, a visible warning marks backups unavailable and the existing native queue remains usable. Other backup failures (for example a full disk) block pending-list changes before they replace saved work. Fix the disk/permissions issue and retry. Reload plugins after installing Node to enable backups. No Gateway/API settings are changed.
+
 ## Requirements
 
 Use a local Claude Code host with **Mods API support**. The plugin targets the Desktop **Code** tab and Claude Code CLI, not the ordinary Chat tab. Remote/cloud and Desktop WSL sessions are not supported.

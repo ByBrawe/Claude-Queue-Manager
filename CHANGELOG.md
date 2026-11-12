@@ -1,3 +1,14 @@
+## 0.9.0 — Backup recovery and safer editing (2026-11-13)
+
+- Add atomic automatic JSON backups outside the shared store, bounded to 50 snapshots / 32 MiB per session, plus unpruned manual exports. Preserve the previous pending list before destructive writes; block changes on backup storage failures. Report unavailable Node separately without disabling the existing native queue.
+- Add native backup browsing, preview and explicit paused restore; add web JSON import/export and restore preview. Validate format, task conditions and limits; preserve current settings/history and allocate new IDs. Exclude archived in-flight tasks and explain replay risks.
+- Add Redo to native, CLI and web. Retire started IDs from both undo and redo. Clear redo on new edits and prevent Undo/Redo during orphan recovery.
+- Add native saved-session previews and confirmed transfers with stale-source protection. Keep existing transfer locks and source/target checks.
+- Add multiline web task editing with durable acknowledgements, preserved drafts and stable-ID/base-text conflict checks.
+- Add observational long-turn warnings using the configured soft timeout or a 30-minute fallback. Never interrupt or dispatch from a timer; preserve existing completion-time timeout behavior.
+- Localize new controls and warnings in all 20 languages. Preserve original low-level host/OS diagnostic details.
+- Add filesystem, stdin, restore/redo, disk-failure and official-host backup tests; extend browser checks for long edits, conflicts, JSON preview/restore/download and invalid imports. Real Claude Desktop pixel testing remains unverified.
+
 ## 0.8.0 — Run one selected task
 
 - Add Run selected task only to native/CLI and web multi-selection controls when exactly one pending task is selected. Add `/qm run <position>` and `/qm run cancel`.

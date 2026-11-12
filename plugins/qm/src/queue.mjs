@@ -30,7 +30,7 @@ export function normalizeConfig(raw) {
 export function initialState(sessionId, now = Date.now()) {
   return {
     version: VERSION, sessionId, pending: [], running: null, done: [], history: [],
-    nextId: 1, paused: false, busy: false, undo: [], updatedAt: now,
+    nextId: 1, paused: false, busy: false, undo: [], redo: [], updatedAt: now,
     config: { ...DEFAULT_CONFIG }, stats: initialStats(), lastOutcome: null,
     context: null, pauseReason: null, transferredTo: null, recoverable: false, singleRun:null
   };
@@ -54,6 +54,7 @@ export function normalizeState(raw, sessionId, now = Date.now()) {
   // Old snapshots did not retire started IDs. Their safety cannot be inferred
   // from the bounded history, so migrate the work but discard old undo entries.
   state.undo = raw.version === VERSION && Array.isArray(raw.undo) ? raw.undo.slice(0, MAX_UNDO) : [];
+  state.redo = raw.version === VERSION && Array.isArray(raw.redo) ? raw.redo.slice(0, MAX_UNDO) : [];
   state.config = normalizeConfig(raw.config);
   state.stats = { ...initialStats() };
   for (const key of STAT_KEYS) if (Number.isFinite(raw.stats?.[key]) && raw.stats[key] >= 0) state.stats[key] = raw.stats[key];
@@ -79,7 +80,7 @@ export function normalizeUsage(input) {
 
 function snapshot(state, next) {
   const undo = [{ pending: state.pending, paused: state.paused }, ...state.undo].slice(0, MAX_UNDO);
-  return { ...next, undo };
+  return { ...next, undo, redo: [] };
 }
 export function enqueue(state, texts, where = 'end', now = Date.now(), when = 'always') {
   if (!Array.isArray(texts) || texts.length < 1 || texts.length > MAX_BATCH) throw new Error(`Provide 1-${MAX_BATCH} non-empty tasks`);
@@ -117,12 +118,20 @@ export function undo(state) {
   if (!state.undo.length) throw new Error('Nothing to undo');
   const [previous, ...rest] = state.undo;
   const started = new Set([...state.history, ...state.done, state.running].filter(Boolean).map(t => t.id));
-  return { ...state, pending: previous.pending.filter(t => !started.has(t.id)), paused: previous.paused, undo: rest };
+  return { ...state, pending: previous.pending.filter(t => !started.has(t.id)), paused: previous.paused, undo: rest,
+    redo: [{pending:state.pending,paused:state.paused},...(state.redo||[])].slice(0,MAX_UNDO) };
+}
+export function redo(state) {
+  if (!state.redo?.length) throw new Error('Nothing to redo');
+  const [entry,...rest]=state.redo;
+  const started=new Set([...state.history,...state.done,state.running].filter(Boolean).map(t=>t.id));
+  return {...state,pending:entry.pending.filter(t=>!started.has(t.id)),paused:true,pauseReason:'user',
+    undo:[{pending:state.pending,paused:state.paused},...state.undo].slice(0,MAX_UNDO),redo:rest};
 }
 function archive(state, record) {
   return { ...state, done: [record, ...state.done].slice(0, MAX_DONE),
     history: [record, ...state.history].slice(0, MAX_HISTORY),
-    undo: retireUndo(state.undo, record.id) };
+    undo: retireUndo(state.undo, record.id), redo: retireUndo(state.redo||[],record.id) };
 }
 // A started/skipped ID must never reappear through an old edit snapshot,
 // even after the bounded outcome history has forgotten it.
@@ -175,7 +184,7 @@ export function claim(state, now = Date.now()) {
       contextAtStart: next.context ? { ...next.context } : null };
     next = { ...next, pending: rest, running, busy: true, updatedAt: now, recoverable: false,
       singleRun:single?null:next.singleRun,
-      undo: retireUndo(next.undo, running.id) };
+      undo: retireUndo(next.undo, running.id), redo: retireUndo(next.redo||[],running.id) };
     return { state: next, task: running };
   }
   return { state: { ...next, updatedAt: now }, task: null };

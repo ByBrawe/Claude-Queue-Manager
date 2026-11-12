@@ -11,7 +11,7 @@ function fakeHost() {
   const tools = {
     session: { id: async () => sessionId },
     store: { get: async key => memory.get(key), set: async (key, value) => { memory.set(key, structuredClone(value)); } },
-    clock: { now: async () => Date.now() },
+    clock: { now: async () => Date.now(), after: () => ({cancel(){}}) },
     ui: {
       invalidate: () => {}, toast: () => {}, log: () => {},
       open: async () => {},
@@ -208,6 +208,7 @@ test('web bridge applies a browser reorder to real session queue before resuming
   h.tools.clock.sleep = async () => {};
   h.tools.clock.every = (ms, callback) => { tick = callback; return {cancel: () => {}}; };
   h.tools.process = { run: async argv => {
+ if(argv[1]?.endsWith('backup-files.mjs'))return{exitCode:0,stdout:'{}'};
     if (argv[3]?.endsWith('/web/server.mjs')) {
       server = createDashboard({ port: Number(argv[4]), token: argv[5] });
       await server.listen();

@@ -151,7 +151,7 @@ test('separate modules/processes cannot restore one source to two targets',async
  const memory=new Map();memory.set('claude-queue-manager:queue:source',{...enqueue(initialState('source'),['A','B']),paused:true});
  const a=await host({memory,lockDir}),b=await host({memory,lockDir});
  const replies=await Promise.all([a.cmd('restore source'),b.cmd('restore source')]);
- assert.equal(replies.filter(x=>/transferred 2/.test(x.text)).length,1);
+ assert.equal(replies.filter(x=>/source.*2/.test(x.text)).length,1);
  assert.equal([a,b].filter(x=>x.state()?.pending.length===2).length,1);
 });
 test('failed restore retains a frozen source and never publishes tasks to the target cache',async t=>{

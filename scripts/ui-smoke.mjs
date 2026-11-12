@@ -1,3 +1,4 @@
+import {archiveQueue,restoreArchive} from '../plugins/qm/src/backups.mjs';
 import { LANGUAGES } from '../plugins/qm/src/locales.mjs';
 // Optional visual QA. Install Playwright outside the plugin, then set
 // QM_PLAYWRIGHT_MODULE to its index.mjs file URL if it is not on the module path.
@@ -5,7 +6,7 @@ import assert from 'node:assert/strict';
 import { mkdir, writeFile } from 'node:fs/promises';
 import { fileURLToPath } from 'node:url';
 import { createDashboard } from '../plugins/qm/web/server.mjs';
-import { DEFAULT_CONFIG, initialState, enqueue, reorderByIds, removeByIds, configure, retryLast, recover, runOne, cancelOne, claim, settleTurn } from '../plugins/qm/src/queue.mjs';
+import { DEFAULT_CONFIG, initialState, enqueue, reorderByIds, removeByIds, configure, retryLast, recover, runOne, cancelOne, claim, settleTurn, edit, redo } from '../plugins/qm/src/queue.mjs';
 import { settingsGuard } from '../plugins/qm/src/settings.mjs';
 const { chromium } = await import(process.env.QM_PLAYWRIGHT_MODULE || 'playwright');
 const out=fileURLToPath(new URL('../artifacts/',import.meta.url));await mkdir(out,{recursive:true});
@@ -27,6 +28,9 @@ const timer=setInterval(async()=>{
   if(action.revision!==app.getState().revision)throw new Error('Queue changed; refresh');
   const op=action.operation;
   if(op.type==='add')state=enqueue(state,op.texts);
+  if(op.type==='edit'){const at=state.pending.findIndex(x=>x.id===op.id&&x.text===op.baseText);if(at<0)throw new Error('archiveStale');state=edit(state,at+1,op.text);}
+  if(op.type==='restore-backup')state=restoreArchive(state,op.archive,op.base);
+  if(op.type==='redo')state=redo(state);
   if(op.type==='reorder')state=reorderByIds(state,op.ids);
   if(op.type==='remove')state=removeByIds(state,op.ids);
   if(op.type==='configure'){settingsGuard(state,op.base);state=configure(state,op.updates);}
@@ -114,8 +118,21 @@ try{
  await page.setViewportSize({width:900,height:1000});await page.screenshot({path:out+'/single-running-900-tr.png',fullPage:true});
  state=settleTurn(state,'success',Date.now());await post();await page.waitForFunction(()=>document.querySelector('#status').textContent.includes('Tek görev bitti'));
  assert.equal(state.paused,true);assert.deepEqual(state.pending.map(x=>x.id),[1,2]);
+ await seed(3);await page.goto(base+'/?qa='+revision+'#token='+token);await page.waitForFunction(()=>document.querySelectorAll('.row-task').length===3);await page.selectOption('#locale','tr');
+ await page.locator('.row-actions .btn').first().click();const longText='Uzun görev metni\n'+ 'Ayrıntılı yönerge. '.repeat(70);await page.fill('#task-edit-text',longText);
+ await page.waitForTimeout(1400);assert.equal(await page.inputValue('#task-edit-text'),longText);
+ await page.locator('.task-edit-form button[type=submit]').click();await page.waitForFunction(()=>!document.querySelector('#task-edit-text'));assert.equal(state.pending[0].text,longText.trim());
+ await page.locator('.row-actions .btn').first().click();await page.fill('#task-edit-text','My unsaved change');state=edit(state,1,'Changed in Desktop');await post();await page.waitForTimeout(1400);
+ await page.locator('.task-edit-form button[type=submit]').click();await page.waitForTimeout(1400);assert.equal(state.pending[0].text,'Changed in Desktop');assert.equal(await page.inputValue('#task-edit-text'),'My unsaved change');
+ await page.locator('.task-edit-form button[type=button]').click();
+ await page.click('#backup-title');const archive=archiveQueue(enqueue(initialState('old'),['Restored A','Restored B']));
+ await page.setInputFiles('#backup-file',{name:'tasks.json',mimeType:'application/json',buffer:Buffer.from(JSON.stringify(archive))});await page.waitForFunction(()=>!document.querySelector('#backup-preview').hidden);
+ for(const width of [1440,900,390]){await page.setViewportSize({width,height:1000});assert.equal(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth),true);await page.screenshot({path:out+'/backup-preview-'+width+'-tr.png',fullPage:true});}
+ await page.click('#backup-restore');await page.waitForFunction(()=>document.querySelector('#backup-preview').hidden);assert.deepEqual(state.pending.map(x=>x.text),['Restored A','Restored B']);assert.equal(state.paused,true);
+ const downloadPromise=page.waitForEvent('download');await page.click('#backup-export');const download=await downloadPromise;assert.equal(download.suggestedFilename(),'qm-backup.json');
+ await page.setInputFiles('#backup-file',{name:'invalid.json',mimeType:'application/json',buffer:Buffer.from('{}')});assert.deepEqual(state.pending.map(x=>x.text),['Restored A','Restored B']);
  assert.deepEqual(errors,[]);
- await writeFile(`${out}/visual-results.json`,JSON.stringify({checks,settingsCaptures:6,recoveryCaptures:2,singleCaptures:3,interactions:['multi-select','drag reorder','repeat','delete confirmation','settings save','settings conflict','settings defaults','restart recovery','run one','cancel one','disconnect','reconnect'],pageErrors:errors},null,2));
- console.log(`${checks.length} queue captures, 6 settings + 2 recovery + 3 single-task captures and 12 interaction checks passed; no browser errors.`);
+ await writeFile(`${out}/visual-results.json`,JSON.stringify({checks,settingsCaptures:6,recoveryCaptures:2,singleCaptures:3,interactions:['multi-select','drag reorder','repeat','delete confirmation','settings save','settings conflict','settings defaults','restart recovery','run one','cancel one','disconnect','reconnect','edit long text','edit conflict','import preview','restore paused','export download','invalid import'],pageErrors:errors},null,2));
+ console.log(`${checks.length} queue captures, 6 settings + 2 recovery + 3 single-task captures and 18 interaction checks passed; no browser errors.`);
 }finally{clearInterval(timer);await browser.close();await app.close();}
 
