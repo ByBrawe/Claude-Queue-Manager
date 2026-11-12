@@ -1,4 +1,4 @@
-import { LANGUAGES, EXTRA_MESSAGES, canonicalLocale } from '/locales.mjs';
+import { LANGUAGES, EXTRA_MESSAGES, RECOVERY_MESSAGES, canonicalLocale } from '/locales.mjs';
 import { configDraft, parseSettings, configSignature, FORM_KEYS } from '/settings.mjs';
 import { settingsStrings } from '/settings-locales.mjs';
 // Browser-only UI; the authoritative queue lives in the Claude Code mod.
@@ -110,6 +110,7 @@ for(const [code,m] of Object.entries(EXTRA_MESSAGES))labels[code]={
  repeatTitle:m.repeatButton,count:m.count,message:m.repeatMessage,repeatAdd:m.repeatButton,current:m.active,pauseHelp:m.pauseHint,starts:m.addStarts,held:m.addPaused,
  retryConnection:m.unavailable+' · '+m.retryLabel,stopped:m.sessionsLabel+' · '+m.unavailable+' · /qm web',missingContext:m.contextMissing,session:m.sessionsLabel,up:m.moveTop,down:m.moveBottom,selectTask:m.select,historyTitle:m.historyLabel+' / '+m.analytics};
 const t = () => labels[locale];
+for(const [code,messages] of Object.entries(RECOVERY_MESSAGES))Object.assign(labels[code],messages);
 function toast(message, bad = false) {
   const el = $('toast'); el.textContent = message;
   el.style.borderColor = bad ? '#ba6271' : '#557388';
@@ -170,19 +171,24 @@ function render() {
   renderSettings();
   const focusKey = document.activeElement?.id;
   const m = t(); const s = snapshot;
+  const recovering=Boolean(s?.running&&s?.recoverable);
+  $('recovery-panel').classList.toggle('hidden',!recovering);
+  $('recovery-title').textContent=m.recoveryState;
+  $('recovery-task').textContent=recovering?s.running.text:'';
+  $('recovery-hint').textContent=s?.hostActive?m.recoveryWait:m.recoveryHint;
   $('pending-count').textContent = s ? s.pending.length : '—';
-  $('active-count').textContent = s ? Number(Boolean(s.running)) : '—';
+  $('active-count').textContent = s ? Number(Boolean(s.running)&&!recovering) : '—';
   $('done-count').textContent = s ? (s.stats ? (s.stats.success||0)+(s.stats.failure||0)+(s.stats.timeout||0)+(s.stats.unknown||0) : s.done.length) : '—';
-  $('status').textContent = s ? s.paused ? m.paused : s.running ? m.running : s.busy ? m.working : m.ready : '—';
+  $('status').textContent = s ? recovering?m.recoveryState:s.paused ? m.paused : s.running ? m.running : s.busy ? m.working : m.ready : '—';
   $('status').style.color=s?.paused?'var(--pause)':'var(--accent)';
-  $('toggle-pause').textContent = s?.paused ? m.resume : m.pause;
-  $('toggle-pause').disabled = !online || !s || Boolean(pendingActionId);
+  $('toggle-pause').textContent = recovering?m.recoveryAction:s?.paused ? m.resume : m.pause;
+  $('toggle-pause').disabled = !online || !s || Boolean(pendingActionId)||Boolean(recovering&&s.hostActive);
   $('toggle-pause').classList.toggle('paused',Boolean(s?.paused));
   $('session-id').textContent=s?.sessionId?`${m.session}: ${s.sessionId}`:'—';
   $('add-behavior').textContent=s?.paused?m.held:m.starts;
   $('repeat-add').disabled=!online||!s||Boolean(pendingActionId);
   $('add-tasks').disabled = !online || !s || Boolean(pendingActionId);
-  $('active-title').textContent = s?.running?.text || m.activeEmpty;
+  $('active-title').textContent = recovering?m.recoveryState:s?.running?.text || m.activeEmpty;
   $('active-subtitle').textContent = m.activeDesc;
   $('context-panel').textContent = `${m.contextName}: ${s?.context ? `${s.context.percent}% (${s.context.tokens}/${s.context.window})` : m.missingContext}`;
   const counts = s?.stats;
@@ -300,7 +306,7 @@ async function action(operation) {
     render();
     return true;
   } catch (error) {
-    const settingsError=settingsStrings(locale)[error.message];
+    const settingsError=settingsStrings(locale)[error.message]||RECOVERY_MESSAGES[locale]?.[error.message];
     if(operation.type==='configure'&&settingsEditor)settingsEditor.error=settingsError||settingsStrings(locale).error+': '+error.message;
     toast(error.status===409?t().stale:settingsError||error.message,true);await refresh();return false;
   }
@@ -325,7 +331,7 @@ async function addTasks() {
 }
 function confirmDelete() { modalSelection=selectedIds(); lastFocus=document.activeElement; $('overlay').classList.remove('hidden'); $('cancel-confirm').focus(); }
 function dismissDelete() { $('overlay').classList.add('hidden'); lastFocus?.focus(); }
-$('toggle-pause').onclick = () => void action({type:snapshot?.paused?'resume':'pause'});
+$('toggle-pause').onclick = () => void action({type:snapshot?.recoverable&&snapshot?.running?'recover':snapshot?.paused?'resume':'pause'});
 $('undo-selection').onclick = () => { selected.clear(); render(); };
 $('select-all').onclick = () => {
   const items=snapshot?.pending.filter(x=>x.text.toLocaleLowerCase().includes(searchTerm))||[];

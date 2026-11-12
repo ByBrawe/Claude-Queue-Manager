@@ -1,3 +1,10 @@
+## 0.7.3 — Visible restart recovery
+
+- Show orphaned work as Recovery needed rather than an actively running task, with a prominent native/CLI notice and Return task to queue action near the top.
+- Replace Resume with recovery until the orphan is returned to pending. Keep the queue paused for review; warn that previously completed work may repeat.
+- Add the same recovery state/action to the web dashboard, with revision-checked persistence. Reject browser Resume while recovery is required and block UI recovery during a tracked live Claude turn.
+- Translate recovery controls and guidance in all 20 languages. Cover restart, live-turn protection, failed writes, native host controls and browser recovery captures.
+
 ## 0.7.2 — Multiline editing and clear pending order
 
 - Use a full-width multiline editor near the top of the native workspace: 10 rows in the side pane, 6 above the prompt. Save explicitly; submitting the input alone keeps the draft.

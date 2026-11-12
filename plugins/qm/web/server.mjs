@@ -93,7 +93,7 @@ export function createDashboard({ token = randomBytes(32).toString('hex'), port 
         const operation = body?.operation;
         if (!snapshot || body.revision !== revision) return send(res, 409, { error: 'Queue changed; refresh and retry' });
         if (waitingAction) return send(res, 409, { error: 'Previous change is still applying' });
-        if (!operation || !['reorder', 'remove', 'add', 'pause', 'resume', 'configure', 'retry-last'].includes(operation.type)) {
+        if (!operation || !['reorder', 'remove', 'add', 'pause', 'resume', 'configure', 'retry-last', 'recover'].includes(operation.type)) {
           return send(res, 400, { error: 'Unsupported operation' });
         }
         // Limit payload complexity before the mod validates it against actual state.
@@ -111,6 +111,11 @@ export function createDashboard({ token = randomBytes(32).toString('hex'), port 
           settingsGuard(snapshot,operation.base);configure({config:snapshot.config},operation.updates);
         }
         if(operation.type==='retry-last'&&snapshot.running)throw new Error('running');
+        if(operation.type==='resume'&&snapshot.recoverable)throw new Error('recoveryState');
+        if(operation.type==='recover'){
+          if(!snapshot.recoverable||!snapshot.running)throw new Error('recoveryState');
+          if(snapshot.hostActive)throw new Error('recoveryWait');
+        }
         waitingAction = { id: nextActionId++, revision, operation };
         return send(res, 202, { accepted: waitingAction.id });
       }
@@ -126,6 +131,7 @@ export function createDashboard({ token = randomBytes(32).toString('hex'), port 
           locale: body.state.locale ?? null,
           pending: body.state.pending,
           running: body.state.running ?? null,
+          recoverable:Boolean(body.state.recoverable),hostActive:Boolean(body.state.hostActive),
           done: body.state.done ?? [],
           paused: Boolean(body.state.paused),
           busy: Boolean(body.state.busy),

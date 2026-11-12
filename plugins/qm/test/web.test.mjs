@@ -46,6 +46,17 @@ test('web settings gate rejects invalid, stale and running-task changes before q
  assert.equal(app.getState().snapshot.config.retries,0,'acceptance alone must not imply persistence');
 });
 
+test('web recovery gates resume and exposes the orphan without auto-dispatch',async t=>{
+ const app=createDashboard({token:TOKEN}),port=await app.listen();t.after(()=>app.close());
+ let state={...initialState('web-orphan'),paused:true,recoverable:true,running:{id:1,text:'unfinished'},hostActive:true};
+ const post=async revision=>fetch(api(port,'state'),options('POST',{revision,state}));await post(1);
+ const op=type=>fetch(api(port,'action'),options('POST',{revision:app.getState().revision,operation:{type}}));
+ assert.equal((await op('resume')).status,400);assert.equal((await op('recover')).status,400);
+ state={...state,hostActive:false};await post(2);
+ assert.equal(app.getState().snapshot.recoverable,true);assert.equal((await op('recover')).status,202);
+ assert.equal(app.getState().snapshot.running.text,'unfinished','acceptance does not imply recovery was saved');
+});
+
 test('browser dashboard enforces token, loopback host, origin, revision, operation ack', async t => {
   const app = createDashboard({ token: TOKEN });
   const port = await app.listen();

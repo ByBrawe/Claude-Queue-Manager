@@ -6,6 +6,31 @@ export const LANGUAGES = [
  ['id','Bahasa Indonesia'],['vi','Tiếng Việt'],['fa','فارسی']
 ].map(([value,label])=>({value,label}));
 export const canonicalLocale = value => LANGUAGES.find(x=>x.value.toLowerCase()===String(value).toLowerCase())?.value;
+const recoveryRows={
+ en:'Recovery needed|Return task to queue|This task was interrupted by a restart. Return it to the front, review the queue, then resume. Work may repeat.|Wait for the current Claude turn to finish before recovering.',
+ tr:'Kurtarma bekliyor|Görevi kuyruğa geri al|Yeniden başlatmada askıda kalan görev başa alınır; kuyruk duraklatılmış kalır. İnceleyip devam ettir. Yapılmış işler tekrarlanabilir.|Kurtarmadan önce çalışan Claude turunun bitmesini bekle.',
+ de:'Wiederherstellung nötig|Aufgabe zurück in die Warteschlange|Nach dem Neustart unterbrochen. Aufgabe vorn einreihen, Warteschlange prüfen und fortsetzen. Arbeit kann wiederholt werden.|Vor der Wiederherstellung den aktuellen Claude-Durchlauf abwarten.',
+ fr:'Récupération requise|Remettre la tâche en file|Tâche interrompue au redémarrage. Remettez-la en tête, vérifiez puis reprenez. Le travail peut être répété.|Attendez la fin du tour Claude avant la récupération.',
+ es:'Recuperación pendiente|Devolver tarea a la cola|Tarea interrumpida al reiniciar. Devuélvela al principio, revisa y reanuda. El trabajo puede repetirse.|Espera a que termine el turno de Claude antes de recuperar.',
+ it:'Recupero necessario|Rimetti l’attività in coda|Attività interrotta al riavvio. Riportala in testa, controlla e riprendi. Il lavoro può ripetersi.|Attendi la fine del turno Claude prima del recupero.',
+ 'pt-BR':'Recuperação pendente|Devolver tarefa à fila|Tarefa interrompida ao reiniciar. Coloque no início, revise e retome. O trabalho pode ser repetido.|Aguarde o turno do Claude terminar antes de recuperar.',
+ ru:'Требуется восстановление|Вернуть задачу в очередь|Задача прервана перезапуском. Верните её в начало, проверьте очередь и продолжите. Работа может повториться.|Дождитесь завершения текущего хода Claude.',
+ uk:'Потрібне відновлення|Повернути завдання в чергу|Завдання перервано перезапуском. Поверніть на початок, перевірте й продовжте. Робота може повторитися.|Дочекайтеся завершення поточного ходу Claude.',
+ pl:'Wymagane odzyskanie|Przywróć zadanie do kolejki|Zadanie przerwane po restarcie. Dodaj na początek, sprawdź i wznów. Praca może się powtórzyć.|Przed odzyskaniem poczekaj na koniec tury Claude.',
+ nl:'Herstel nodig|Taak terug in de wachtrij|Taak onderbroken door herstart. Zet vooraan, controleer en hervat. Werk kan worden herhaald.|Wacht tot de huidige Claude-beurt klaar is.',
+ sv:'Återställning krävs|Lägg tillbaka uppgiften i kön|Avbruten vid omstart. Lägg först, granska kön och fortsätt. Arbetet kan upprepas.|Vänta tills den aktuella Claude-turen är klar.',
+ ja:'復旧待ち|タスクをキューに戻す|再起動で中断されたタスクを先頭に戻します。キューを確認してから再開してください。作業が重複する場合があります。|復旧前にClaudeの現在のターンが終わるまで待ってください。',
+ ko:'복구 대기|작업을 대기열로 복구|재시작으로 중단된 작업을 맨 앞에 넣습니다. 대기열을 검토한 후 재개하세요. 작업이 반복될 수 있습니다.|복구 전에 현재 Claude 턴이 끝날 때까지 기다리세요.',
+ 'zh-CN':'等待恢复|将任务放回队列|重启中断的任务会放回队首。请检查队列后再恢复运行，工作可能重复。|请等待当前 Claude 轮次结束后再恢复任务。',
+ ar:'بانتظار الاستعادة|إعادة المهمة إلى القائمة|توقفت المهمة عند إعادة التشغيل. أعدها إلى البداية وراجع القائمة ثم استأنف. قد يتكرر العمل.|انتظر انتهاء دور Claude الحالي قبل الاستعادة.',
+ hi:'पुनर्प्राप्ति आवश्यक|कार्य कतार में वापस रखें|रीस्टार्ट से रुका कार्य शुरुआत में रखें। कतार जाँचकर जारी करें। काम दोहराया जा सकता है।|पुनर्प्राप्ति से पहले वर्तमान Claude टर्न समाप्त होने दें।',
+ id:'Perlu pemulihan|Kembalikan tugas ke antrean|Tugas terputus saat mulai ulang. Kembalikan ke awal, tinjau lalu lanjutkan. Pekerjaan dapat berulang.|Tunggu giliran Claude saat ini selesai sebelum memulihkan.',
+ vi:'Đang chờ khôi phục|Đưa công việc về hàng đợi|Công việc bị ngắt khi khởi động lại. Đưa lên đầu, kiểm tra rồi tiếp tục. Công việc có thể lặp lại.|Chờ lượt Claude hiện tại kết thúc trước khi khôi phục.',
+ fa:'در انتظار بازیابی|بازگرداندن کار به صف|کار هنگام راه‌اندازی مجدد قطع شد. به ابتدای صف برگردانید، بررسی و سپس ادامه دهید. ممکن است کار تکرار شود.|پیش از بازیابی منتظر پایان نوبت فعلی Claude بمانید.'
+};
+export const RECOVERY_MESSAGES=Object.fromEntries(Object.entries(recoveryRows).map(([code,row])=>{
+ const [recoveryState,recoveryAction,recoveryHint,recoveryWait]=row.split('|');return [code,{recoveryState,recoveryAction,recoveryHint,recoveryWait}];
+}));
 const keys='ready paused running working pending active done pause resume addButton repeatButton count repeatMessage search edit save select selected selectAll deselectAll moveTop moveBottom remove undo clear confirm cancel prev next language details close openWeb contextLabel verifyLabel retryLabel timeoutLabel historyLabel analytics sessionsLabel unavailable off empty noActive'.split(' ');
 const rows={
 de:'Bereit|Pausiert|Läuft|Beschäftigt|Wartend|Aktiv|Abgeschlossen|Pausieren|Fortsetzen|Zur Warteschlange|Wiederholen|Anzahl|Nachricht wiederholen|Aufgaben suchen|Bearbeiten|Speichern|Auswählen|Ausgewählt|Seite auswählen|Auswahl aufheben|Nach oben|Nach unten|Löschen|Rückgängig|Wartende löschen|Bestätigen|Abbrechen|Zurück|Weiter|Sprache|Details|Schließen|Webansicht|Kontext|Prüfung|Wiederholungen|Zeitlimit|Verlauf|Statistik|Sitzungen|Nicht verfügbar|Aus|Keine wartenden Aufgaben. Füge eine Aufgabe hinzu.|Keine Aufgabe läuft.',

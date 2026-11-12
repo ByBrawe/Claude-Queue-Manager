@@ -5,7 +5,7 @@ import assert from 'node:assert/strict';
 import { mkdir, writeFile } from 'node:fs/promises';
 import { fileURLToPath } from 'node:url';
 import { createDashboard } from '../plugins/qm/web/server.mjs';
-import { DEFAULT_CONFIG, initialState, enqueue, reorderByIds, removeByIds, configure, retryLast } from '../plugins/qm/src/queue.mjs';
+import { DEFAULT_CONFIG, initialState, enqueue, reorderByIds, removeByIds, configure, retryLast, recover } from '../plugins/qm/src/queue.mjs';
 import { settingsGuard } from '../plugins/qm/src/settings.mjs';
 const { chromium } = await import(process.env.QM_PLAYWRIGHT_MODULE || 'playwright');
 const out=fileURLToPath(new URL('../artifacts/',import.meta.url));await mkdir(out,{recursive:true});
@@ -31,6 +31,7 @@ const timer=setInterval(async()=>{
   if(op.type==='remove')state=removeByIds(state,op.ids);
   if(op.type==='configure'){settingsGuard(state,op.base);state=configure(state,op.updates);}
   if(op.type==='retry-last')state=retryLast(state);
+  if(op.type==='recover')state=recover(state);
   if(op.type==='pause'||op.type==='resume')state={...state,paused:op.type==='pause'};
   await post({id:action.id,ok:true});
  }catch(e){await post({id:action.id,ok:false,error:e.message});}
@@ -88,8 +89,20 @@ try{
  await page.route('**/api/state',r=>r.abort());await page.waitForTimeout(1600);assert.equal(await page.locator('#connection-error').isVisible(),true);
  assert.equal(await page.locator('#add-tasks').isDisabled(),true);
  await page.unroute('**/api/state');await page.waitForTimeout(1600);assert.equal(await page.locator('#connection-error').isVisible(),false);
+ state={...enqueue(initialState('recovery-qa'),['Pending A','Pending B']),running:{id:3,text:'Interrupted task after restart',attempts:1},nextId:4,paused:true,busy:true,recoverable:true};
+ await post();await page.goto(base+'/?qa='+revision+'#token='+token);await page.selectOption('#locale','tr');
+ await page.waitForFunction(()=>!document.querySelector('#recovery-panel').classList.contains('hidden'));
+ assert.equal(await page.innerText('#active-count'),'0');
+ for(const width of [900,390]){await page.setViewportSize({width,height:1000});assert.equal(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth),true);await page.screenshot({path:`${out}/recovery-${width}-tr.png`,fullPage:true});}
+ const recoveryAck=page.waitForResponse(async response=>{
+   if(!response.url().includes('/api/state')||response.request().method()!=='GET')return false;
+   const data=await response.json();return data.lastAck?.ok&&!data.state?.recoverable&&data.state?.pending?.length===3;
+ });
+ await page.click('#toggle-pause');await recoveryAck;
+ await page.waitForFunction(()=>document.querySelector('#recovery-panel').classList.contains('hidden'));
+ assert.equal(state.paused,true);assert.equal(state.pending[0].text,'Interrupted task after restart');assert.equal(state.running,null);
  assert.deepEqual(errors,[]);
- await writeFile(`${out}/visual-results.json`,JSON.stringify({checks,settingsCaptures:6,interactions:['multi-select','drag reorder','repeat','delete confirmation','settings save','settings conflict','settings defaults','disconnect','reconnect'],pageErrors:errors},null,2));
- console.log(`${checks.length} queue captures, 6 settings captures and 9 interaction checks passed; no browser errors.`);
+ await writeFile(`${out}/visual-results.json`,JSON.stringify({checks,settingsCaptures:6,recoveryCaptures:2,interactions:['multi-select','drag reorder','repeat','delete confirmation','settings save','settings conflict','settings defaults','restart recovery','disconnect','reconnect'],pageErrors:errors},null,2));
+ console.log(`${checks.length} queue captures, 6 settings + 2 recovery captures and 10 interaction checks passed; no browser errors.`);
 }finally{clearInterval(timer);await browser.close();await app.close();}
 

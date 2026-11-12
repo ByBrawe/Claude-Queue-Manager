@@ -20,6 +20,23 @@ test('official host registers Claude queue tool and protects the active turn',as
 // These exercise Claude's real element constructors and hook dispatch, rather
 // than identity-function stand-ins for Input, Button, and Box.
 for (const surface of ['terminal', 'desktop'] as const) {
+  test(`${surface}: orphan recovery control is available above the prompt`,async($,on)=>{
+    mock.clock(on)
+    const saved={...enqueue(initialState('orphan-native'),['A','B']),running:{id:3,text:'Interrupted task',attempts:1},nextId:4}
+    mock.store(on,{'claude-queue-manager:queue:orphan-native':saved})
+    on('session.id',()=>({value:'orphan-native'}))
+    on('ui.log',()=>({value:undefined}));on('ui.toast',()=>({value:undefined}));on('ui.close',()=>({value:undefined}))
+    on('ui.render',()=>({type:'Text',props:{},children:[]}))
+    await $.command.run({command:'qm',args:''})
+    const panel=await $.ui.mount({plugin:'qm',component:'AbovePrompt',requestId:'recovery',surface,viewport:{columns:48,rows:40},props:{bodyColumns:48,hasSurvey:false}})
+    expect(await panel.find({key:'qm-recovery-notice'})).toBeDefined()
+    expect(await panel.find({key:'qm-toggle'})).toBeUndefined()
+    await panel.press({key:'qm-recover'})
+    expect(await panel.find({key:'qm-recover'})).toBeUndefined()
+    expect(await panel.find({key:'qm-toggle'})).toBeDefined()
+    expect(await panel.find({type:'Text',text:/3 bekleyen/})).toBeDefined()
+    await panel.unmount()
+  })
   for (const columns of [48, 110]) {
     test(`${surface} ${columns} columns: panel renders search and task controls`, async ($, on) => {
       mock.clock(on)

@@ -158,7 +158,8 @@ async function sendWebSnapshot($) {
     await webRequest($, 'state', 'POST', {
       revision: webRevision,
       state: { sessionId: cachedSessionId, locale: language, pending: cached.pending, running: cached.running, done: cached.done,
-        paused: cached.paused, busy: cached.busy, stats: cached.stats,
+        paused: cached.paused, busy: cached.busy, stats: cached.stats, recoverable:cached.recoverable,
+        hostActive:Boolean(activeTurnId)||verificationRunning,
         context, config: cached.config, pauseReason: cached.pauseReason,
         history: cached.history.slice(0, 12) },
       ...(webAck ? { ack: webAck } : {})
@@ -184,8 +185,9 @@ async function syncWebAction($) {
       if (op.type === 'add') return enqueue(state, op.texts);
       if (op.type === 'configure') { settingsGuard(state,op.base); return configure(state,op.updates); }
       if (op.type === 'retry-last') { if(state.running)throw new Error('running'); return retryLast(state,now); }
+      if (op.type === 'recover') { if(activeTurnId||verificationRunning)throw new Error('recoveryWait'); return recover(state); }
       if (op.type === 'pause') return { ...state, paused: true };
-      if (op.type === 'resume') return { ...state, paused: false };
+      if (op.type === 'resume') { if(state.recoverable)throw new Error('recoveryState'); return { ...state, paused: false }; }
       throw new Error('Unknown browser operation');
     });
     webAck = { id: item.id, ok: true };
@@ -475,6 +477,7 @@ const block = (Box, children, props = {}) => Box({ flexDirection: 'column', rowG
 const button = (Button, key, label, onPress, extra = {}) => Button({ key, label, onPress, ...extra });
 
 function status(state, t) {
+  if(state.running&&state.recoverable)return t.recoveryState;
   return state.paused ? t.paused : state.running ? t.running : state.busy ? t.working : t.ready;
 }
 
@@ -574,6 +577,7 @@ async function buildPane($, e) {
   const expanded = true;
   const t = uiStrings(language);
   const state = await readState($);
+  const needsRecovery=Boolean(state.running&&state.recoverable);
   const liveContext = normalizeUsage(await readUsage($));
   const context = liveContext ?? state.context;
   const narrow = (e.props?.bodyColumns || 60) < 70;
@@ -585,7 +589,7 @@ async function buildPane($, e) {
   const title = node(Text, `Queue Manager · ${status(state, t)}`, {
     color: state.paused ? 'yellow' : state.running ? 'green' : 'cyan', bold: true
   });
-  const stats = node(Text, `${state.pending.length} ${t.pending} · ${state.running ? 1 : 0} ${t.active} · ${state.stats.success} ${t.done}`, { dimColor: true });
+  const stats = node(Text, `${state.pending.length} ${t.pending} · ${state.running&&!needsRecovery ? 1 : 0} ${t.active}${needsRecovery ? ' · 1 '+t.recoveryState : ''} · ${state.stats.success} ${t.done}`, { dimColor: true });
   const contextLine = node(Text, `${t.contextLabel}: ${context ? `${context.percent}% (${context.tokens}/${context.window})` : t.contextMissing} · ${t.verifyLabel}: ${state.config.verify === 'off' ? t.off : state.config.verify} · ${t.retryLabel}: ${state.config.retries} · ${t.timeoutLabel}: ${state.config.timeoutMs ? `${Math.round(state.config.timeoutMs/1000)}s` : t.off}`, { dimColor: true });
   const pauseNames = language === 'tr' ? {user:'kullanıcı duraklattı',interrupted:'tur kesildi',failure:'başarısız görev',timeout:'süre sınırı',unknown:'sonuç bilinmiyor','verify-unknown':'doğrulama belirsiz','session-cleared':'yeni oturumda inceleme bekliyor','submit-rejected':'görev gönderimi reddedildi',recovery:'kurtarma gerekiyor','recovered-needs-review':'kurtarıldı; inceleme bekliyor','restored-needs-review':'taşındı; inceleme bekliyor','manual-retry':'elle yeniden deneme'} : {};
   const genericReason = language!=='en' && language!=='tr' ? ({timeout:t.timeoutLabel,failure:t.failure,'verify-unknown':t.verifyLabel,recovery:t.recover,'session-cleared':t.sessionsLabel,interrupted:t.pause,user:t.pause}[state.pauseReason] || t.paused) : null;
@@ -651,8 +655,15 @@ async function buildPane($, e) {
     : node(Text, state.busy ? t.waiting : t.noActive, { dimColor: true });
 
   const actionRow = Box({ flexDirection: 'row', flexWrap: 'wrap', columnGap: 1, children: [
-    button(Button, 'qm-toggle', state.paused ? t.resume : t.pause,
-      () => act($, state.paused ? 'resume' : 'pause'), { variant: 'primary', hotkey: 'p' }),
+    ...(needsRecovery&&!activeTurnId&&!verificationRunning?[button(Button,'qm-recover',t.recoveryAction,async()=>{
+      try{
+        await change($,current=>{if(activeTurnId||verificationRunning)throw new Error(t.recoveryWait);return recover(current);});
+        notify($,t.recoveryAction+' · '+t.paused);
+      }catch(error){notify($,'QM error: '+error.message);}
+      redraw($);
+    },{variant:'primary',disabled:Boolean(activeTurnId)||verificationRunning})]:[]),
+    ...(!needsRecovery?[button(Button, 'qm-toggle', state.paused ? t.resume : t.pause,
+      () => act($, state.paused ? 'resume' : 'pause'), { variant:'primary', hotkey:'p' })]:[]),
     button(Button, 'qm-undo', t.undo, () => act($, 'undo'), { disabled: !state.undo.length }),
     button(Button, 'qm-clear', clearArmed ? t.confirmClear : t.clear, async () => {
       if (!clearArmed) { clearArmed = true; redraw($); return; }
@@ -769,16 +780,15 @@ async function buildPane($, e) {
   const recent = state.done.length
     ? node(Text, `✓ ${t.done}: ${state.done.slice(0, 2).map(x => shortened(x.text, 45)).join(' · ')}`, { dimColor: true })
     : null;
-  const recover = state.running && state.recoverable
-    ? button(Button, 'qm-recover', t.recover, () => act($, 'recover'), { plain: true })
-    : null;
+  const recoveryNotice=needsRecovery?block(Box,[node(Text,`${t.recoveryState}: ${shortened(state.running.text,140)}`,{color:'yellow',bold:true}),
+    node(Text,t.recoveryHint,{color:'yellow'}),...(activeTurnId||verificationRunning?[node(Text,t.recoveryWait,{dimColor:true})]:[])],{key:'qm-recovery-notice'}):null;
 
   return block(Box, [
     Box({ flexDirection: 'row', flexWrap: 'wrap', columnGap: 2, children: [title, langControl,
       button(Button, 'qm-close', t.close, () => act($, 'close'), { plain: true, hotkey: 'q', role: 'dismiss' }),
       button(Button, 'qm-side', t.side || t.openWeb, () => act($, 'side'), { plain: true })] }),
-    stats, ...(expanded ? [actionRow] : [button(Button,'qm-toggle',state.paused?t.resume:t.pause,()=>act($,state.paused?'resume':'pause'),{variant:'primary',hotkey:'p'})]),
-    ...(state.running ? [active] : state.busy ? [node(Text,t.waiting,{dimColor:true})] : !inline && state.pending.length===0 ? [node(Text, t.empty, {dimColor:true})] : []),
+    stats, ...(expanded ? [actionRow] : [button(Button,'qm-toggle',state.paused?t.resume:t.pause,()=>act($,state.paused?'resume':'pause'),{variant:'primary',hotkey:'p'})]), ...(recoveryNotice?[recoveryNotice]:[]),
+    ...(needsRecovery?[]:state.running ? [active] : state.busy ? [node(Text,t.waiting,{dimColor:true})] : !inline && state.pending.length===0 ? [node(Text, t.empty, {dimColor:true})] : []),
     ...(expanded ? [node(Text, t.pauseHint, { dimColor: true })] : []),
     ...(pauseInfo ? [pauseInfo] : []), ...(confirmNotice ? [confirmNotice] : []),
     ...(state.pending.length ? [Box({key:'qm-next-pending',width:'100%',flexDirection:'column',children:[node(Text,`${t.nextPending}: 1. ${shortened(state.pending[0].text,115)}`,{color:'cyan',bold:true})]}),
@@ -793,7 +803,7 @@ async function buildPane($, e) {
       button(Button, 'qm-repeat-action', t.repeatButton, () => queueRepeated(`${repeatCount} | ${repeatText}`))],
     ...(expanded && state.pending.length ? [search, selectionRow] : []),
     ...(expanded ? (view.rows.length ? rows : state.pending.length ? [node(Text, t.noMatch, { dimColor: true })] : []) : []),
-    ...(expanded && view.totalPages > 1 ? [pages] : []), ...(recover ? [recover] : []),
+    ...(expanded && view.totalPages > 1 ? [pages] : []),
     button(Button, 'qm-details', detailsOpen ? (t.hideDetails || t.close) : (t.details || t.analytics), () => { detailsOpen = !detailsOpen; redraw($); }, { plain: true }),
     ...(detailsOpen ? [contextLine, settingsForm, node(Text,t.keys,{dimColor:true}), advancedActions,
       ...(state.undo.length && !state.pending.length && !state.running ? [button(Button, 'qm-empty-undo', t.undo, () => act($, 'undo'))] : []),

@@ -157,6 +157,12 @@ Normal `/qm` komut argümanları modelin okuyacağı komut kaydından çıkarıl
 | `/qm recover` | Askıda kalmış görevi geri al ve duraklat |
 | `/qm help` | Yardımı göster |
 
+## Yeniden başlatmadan sonra kurtarma
+
+PC veya Code oturumu yarım kalan görevle yeniden açılırsa **Kurtarma bekliyor** görünür. Askıdaki görev aktif sayıdan ayrı gösterilir. Panelin üstündeki **Görevi kuyruğa geri al**, görevi bekleyenlerin başına koyar; otomatik çalıştırmaz. Listeyi inceleyip ardından **Devam ettir** seç. Web panelinde de aynı işlem vardır.
+
+Kurtarma, kapanmadan önce yapılmış işleri tekrarlayabilir. Claude’un izlenen canlı turu sürüyorsa önce bitmesi beklenir. Komut karşılığı inceleme sonrasında `/qm recover` ve ardından `/qm resume` işlemleridir.
+
 ## Sınırlar ve davranış
 
 En fazla **200 görev/ekleme**, **500 bekleyen görev**, görev başına **20.000 karakter** desteklenir. Kuyruk kayıt bütçesi **2.800 KiB**, hostun paylaşılan eklenti depolaması **4 MiB**'dır. Sığmayan ekleme mevcut bekleyen/çalışan işi silmeden reddedilir.

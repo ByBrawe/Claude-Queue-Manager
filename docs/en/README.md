@@ -171,6 +171,12 @@ Ordinary `/qm` command arguments are stripped from the model-readable command tr
 | `/qm recover` | Return an orphaned in-flight task to pending and pause |
 | `/qm help` | Show command help |
 
+## Recover after a restart
+
+If the computer or Code session restarts with an unfinished task, the panel shows **Recovery needed**. The orphan is counted separately from active work. Near the top, choose **Return task to queue** to put it ahead of pending tasks. This does not start it: review the list, then choose **Resume**. The web dashboard offers the same action.
+
+Recovery may repeat work already performed before the interruption. If Claude has a tracked live turn, the recovery control waits for it to finish. The command equivalent is `/qm recover` followed by `/qm resume` after review.
+
 ## Behavior and limits
 
 - Maximum **200 tasks per addition**, **500 pending**, **20,000 characters per task**. The serialized queue budget is **2,800 KiB**, within the host's shared **4 MiB plugin store**. An addition that cannot fit is rejected without discarding pending/running work.
