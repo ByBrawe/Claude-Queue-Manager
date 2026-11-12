@@ -5,7 +5,7 @@ import assert from 'node:assert/strict';
 import { mkdir, writeFile } from 'node:fs/promises';
 import { fileURLToPath } from 'node:url';
 import { createDashboard } from '../plugins/qm/web/server.mjs';
-import { DEFAULT_CONFIG, initialState, enqueue, reorderByIds, removeByIds, configure, retryLast, recover } from '../plugins/qm/src/queue.mjs';
+import { DEFAULT_CONFIG, initialState, enqueue, reorderByIds, removeByIds, configure, retryLast, recover, runOne, cancelOne, claim, settleTurn } from '../plugins/qm/src/queue.mjs';
 import { settingsGuard } from '../plugins/qm/src/settings.mjs';
 const { chromium } = await import(process.env.QM_PLAYWRIGHT_MODULE || 'playwright');
 const out=fileURLToPath(new URL('../artifacts/',import.meta.url));await mkdir(out,{recursive:true});
@@ -32,6 +32,8 @@ const timer=setInterval(async()=>{
   if(op.type==='configure'){settingsGuard(state,op.base);state=configure(state,op.updates);}
   if(op.type==='retry-last')state=retryLast(state);
   if(op.type==='recover')state={...recover(state),busy:Boolean(state.hostActive)};
+  if(op.type==='run-one')state=runOne(state,op.id);
+  if(op.type==='cancel-one')state=cancelOne(state);
   if(op.type==='pause'||op.type==='resume')state={...state,paused:op.type==='pause'};
   await post({id:action.id,ok:true});
  }catch(e){await post({id:action.id,ok:false,error:e.message});}
@@ -47,7 +49,7 @@ try{
   await page.screenshot({path:`${out}/web-${width}-${count}-${locale}.png`,fullPage:true});
   checks.push({width,count,locale,overflow:false});
  }
- for(const lang of LANGUAGES){await seed(3);await page.setViewportSize({width:900,height:1000});await page.goto(base+'/?qa='+revision+'#token='+token);await page.selectOption('#locale',lang.value);await page.waitForFunction(code=>document.documentElement.lang===code,lang.value);assert.equal(await page.locator('#locale option').count(),20);assert.equal(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth),true);assert.equal(await page.locator('#add-tasks').innerText().then(x=>x.length>0),true);await page.click('#settings-title');await page.waitForFunction(()=>document.querySelector('#setting-retries').value!=='');assert.equal(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth),true);await page.screenshot({path:`${out}/language-${lang.value}.png`,fullPage:true});}
+ for(const lang of LANGUAGES){await seed(3);await page.setViewportSize({width:900,height:1000});await page.goto(base+'/?qa='+revision+'#token='+token);await page.selectOption('#locale',lang.value);await page.waitForFunction(code=>document.documentElement.lang===code,lang.value);assert.equal(await page.locator('#locale option').count(),20);assert.equal(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth),true);assert.equal(await page.locator('#add-tasks').innerText().then(x=>x.length>0),true);await page.click('#settings-title');await page.waitForFunction(()=>document.querySelector('#setting-retries').value!=='');await page.locator('.task-check').first().check();assert.equal(await page.locator('#run-selected').isVisible(),true);assert.equal(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth),true);await page.screenshot({path:`${out}/language-${lang.value}.png`,fullPage:true});}
  await seed(3);await page.setViewportSize({width:1440,height:1000});await page.goto(base+'/?qa='+revision+'#token='+token);await page.waitForFunction(()=>document.querySelectorAll('.row-task').length===3);
  await page.selectOption('#locale','en');
  const order=()=>state.pending.map(x=>x.id);
@@ -101,8 +103,19 @@ try{
  await page.click('#toggle-pause');await recoveryAck;
  await page.waitForFunction(()=>document.querySelector('#recovery-panel').classList.contains('hidden'));
  assert.equal(state.paused,true);assert.equal(state.pending[0].text,'Interrupted task after restart');assert.equal(state.running,null);assert.equal(state.busy,true);
+ await seed(3);state={...state,busy:true};await post();await page.goto(base+'/?qa='+revision+'#token='+token);await page.selectOption('#locale','tr');
+ await page.waitForFunction(()=>document.querySelectorAll('.row-task').length===3);await page.locator('.task-check').nth(2).check();await page.click('#run-selected');
+ await page.waitForFunction(()=>!document.querySelector('#single-panel').classList.contains('hidden'));
+ assert.equal(state.singleRun.taskId,3);assert.equal(state.running,null);
+ for(const width of [900,390]){await page.setViewportSize({width,height:1000});assert.equal(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth),true);await page.screenshot({path:out+'/single-pending-'+width+'-tr.png',fullPage:true});}
+ await page.click('#cancel-single');await page.waitForFunction(()=>document.querySelector('#single-panel').classList.contains('hidden'));assert.equal(state.paused,true);assert.equal(state.pending.length,3);
+ await page.click('#run-selected');await page.waitForFunction(()=>!document.querySelector('#single-panel').classList.contains('hidden'));state={...state,busy:false};
+ const picked=claim(state,Date.now());state=picked.state;assert.equal(picked.task.id,3);await post();await page.waitForFunction(()=>document.querySelector('#active-count').textContent==='1');
+ await page.setViewportSize({width:900,height:1000});await page.screenshot({path:out+'/single-running-900-tr.png',fullPage:true});
+ state=settleTurn(state,'success',Date.now());await post();await page.waitForFunction(()=>document.querySelector('#status').textContent.includes('Tek görev bitti'));
+ assert.equal(state.paused,true);assert.deepEqual(state.pending.map(x=>x.id),[1,2]);
  assert.deepEqual(errors,[]);
- await writeFile(`${out}/visual-results.json`,JSON.stringify({checks,settingsCaptures:6,recoveryCaptures:2,interactions:['multi-select','drag reorder','repeat','delete confirmation','settings save','settings conflict','settings defaults','restart recovery','disconnect','reconnect'],pageErrors:errors},null,2));
- console.log(`${checks.length} queue captures, 6 settings + 2 recovery captures and 10 interaction checks passed; no browser errors.`);
+ await writeFile(`${out}/visual-results.json`,JSON.stringify({checks,settingsCaptures:6,recoveryCaptures:2,singleCaptures:3,interactions:['multi-select','drag reorder','repeat','delete confirmation','settings save','settings conflict','settings defaults','restart recovery','run one','cancel one','disconnect','reconnect'],pageErrors:errors},null,2));
+ console.log(`${checks.length} queue captures, 6 settings + 2 recovery + 3 single-task captures and 12 interaction checks passed; no browser errors.`);
 }finally{clearInterval(timer);await browser.close();await app.close();}
 

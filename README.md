@@ -90,6 +90,21 @@ In the native panel, enter **Count**, enter the message, then choose **Repeat**.
 
 Each repetition is a separate task. `continue` is ordinary message text, not a special command. Repeated tasks consume model usage and share the session context.
 
+## Run only the selected task
+
+Select exactly **one pending task** with its checkbox, then choose **Run selected task only**. This control is available above the prompt, in the native side panel and in the web dashboard.
+
+The selected task moves to the front and waits for the current turn. A queue task already running keeps its configured retries; its failure policy may pause processing before the selected task starts. Only the selected task runs next, then the remaining queue is paused. Conditions, context limits, verification and bounded retries still apply. An unmet condition skips the selected task and pauses instead of running something else.
+
+The waiting notice offers **Cancel single-task request**. Cancellation keeps the task in the pending list and pauses the queue; it does not interrupt a task already executing. Starting work by this control is explicit, but never forces text into an active turn. Restarted single-task requests require review before resuming.
+
+CLI equivalents, using the current pending position:
+
+```text
+/qm run 2
+/qm run cancel
+```
+
 ## Native panel and CLI
 
 `/qm`, `/qm inline` or the summary bar's **Expand** opens the full workspace above the prompt. Task entry, repeat fields, pending rows and primary controls stay visible; **Details** opens editable advanced settings, context, history and session information.
@@ -156,6 +171,7 @@ Ordinary `/qm` command arguments are stripped from the model-readable command tr
 | `/qm add <task>` | Add one pending task |
 | `/qm batch A \|\| B \|\| C` | Add different tasks in order |
 | `/qm repeat 5 <message>` | Add 5 identical tasks; 1–200 per call |
+| `/qm run 2`, `/qm run cancel` | Run only pending task 2, then pause / cancel a waiting request |
 | `/qm pause`, `/qm resume` | Hold the next dispatch / resume processing |
 | `/qm front <task>` | Add a task at the front |
 | `/qm edit 2 <text>`, `/qm rm 2`, `/qm mv 3 1` | Edit, remove or move pending positions |

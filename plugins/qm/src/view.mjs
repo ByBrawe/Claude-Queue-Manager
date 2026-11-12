@@ -1,5 +1,5 @@
 // Presentation-only helpers. No Claude Code API calls, model prompts, or IO.
-import { LANGUAGES, EXTRA_MESSAGES, RECOVERY_MESSAGES } from './locales.mjs';
+import { LANGUAGES, EXTRA_MESSAGES, RECOVERY_MESSAGES, SINGLE_MESSAGES } from './locales.mjs';
 export const SUPPORTED_UI_LANGUAGES = LANGUAGES;
 
 const messages = {
@@ -82,7 +82,7 @@ const orderCopy={
 export const uiStrings = locale => {
  const base=messages[locale] ?? EXTRA_MESSAGES[locale] ?? messages.en;
  const [nextPending,showNext,orderHint,editHelp]=(orderCopy[locale] ?? orderCopy.en).split('|');
- return {...base,nextPending,showNext,orderHint,editHelp,...(RECOVERY_MESSAGES[locale]??RECOVERY_MESSAGES.en)};
+ return {...base,nextPending,showNext,orderHint,editHelp,...(RECOVERY_MESSAGES[locale]??RECOVERY_MESSAGES.en),...(SINGLE_MESSAGES[locale]??SINGLE_MESSAGES.en)};
 };
 
 export function filteredPage(pending, search = '', requestedPage = 0, pageSize = 12) {

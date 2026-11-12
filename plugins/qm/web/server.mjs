@@ -4,7 +4,7 @@ import { readFile } from 'node:fs/promises';
 import { fileURLToPath } from 'node:url';
 import { dirname, join } from 'node:path';
 import { randomBytes, timingSafeEqual } from 'node:crypto';
-import { configure, DEFAULT_CONFIG } from '../src/queue.mjs';
+import { configure, DEFAULT_CONFIG, runOne, cancelOne } from '../src/queue.mjs';
 import { settingsGuard, CONFIG_KEYS } from '../src/settings.mjs';
 
 const here = dirname(fileURLToPath(import.meta.url));
@@ -93,7 +93,7 @@ export function createDashboard({ token = randomBytes(32).toString('hex'), port 
         const operation = body?.operation;
         if (!snapshot || body.revision !== revision) return send(res, 409, { error: 'Queue changed; refresh and retry' });
         if (waitingAction) return send(res, 409, { error: 'Previous change is still applying' });
-        if (!operation || !['reorder', 'remove', 'add', 'pause', 'resume', 'configure', 'retry-last', 'recover'].includes(operation.type)) {
+        if (!operation || !['reorder', 'remove', 'add', 'pause', 'resume', 'configure', 'retry-last', 'recover', 'run-one', 'cancel-one'].includes(operation.type)) {
           return send(res, 400, { error: 'Unsupported operation' });
         }
         // Limit payload complexity before the mod validates it against actual state.
@@ -115,6 +115,8 @@ export function createDashboard({ token = randomBytes(32).toString('hex'), port 
         if(operation.type==='recover'){
           if(!snapshot.recoverable||!snapshot.running)throw new Error('recoveryState');
         }
+        if(operation.type==='run-one')runOne(snapshot,operation.id);
+        if(operation.type==='cancel-one')cancelOne(snapshot);
         waitingAction = { id: nextActionId++, revision, operation };
         return send(res, 202, { accepted: waitingAction.id });
       }
@@ -131,6 +133,7 @@ export function createDashboard({ token = randomBytes(32).toString('hex'), port 
           pending: body.state.pending,
           running: body.state.running ?? null,
           recoverable:Boolean(body.state.recoverable),hostActive:Boolean(body.state.hostActive),
+          singleRun:body.state.singleRun??null,
           done: body.state.done ?? [],
           paused: Boolean(body.state.paused),
           busy: Boolean(body.state.busy),

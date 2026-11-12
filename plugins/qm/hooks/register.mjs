@@ -6,7 +6,7 @@ import { settingsStrings } from '../src/settings-locales.mjs';
 // as a new user turn after a successful main turn.complete event.
 import { DEFAULT_CONFIG, initialState, normalizeState, normalizeUsage, enqueue, remove, move, edit, clear, undo,
   claim, settleTurn, recordContext, configure, statsText, retryLast, rejectSubmission, recover,
-  removeByIds, reorderByIds, moveSelected } from '../src/queue.mjs';
+  removeByIds, reorderByIds, moveSelected, runOne, cancelOne } from '../src/queue.mjs';
 import { MARKER_NOTE, verdictFromText, parseAiVerdict, buildVerificationPrompt } from '../src/verification.mjs';
 import { parseCommand, HELP, HELP_TR } from '../src/commands.mjs';
 import { uiStrings, filteredPage, parseRepeatForm, splitPaste, SUPPORTED_UI_LANGUAGES } from '../src/view.mjs';
@@ -166,7 +166,7 @@ async function sendWebSnapshot($) {
       revision: webRevision,
       state: { sessionId: cachedSessionId, locale: language, pending: cached.pending, running: cached.running, done: cached.done,
         paused: cached.paused, busy: cached.busy, stats: cached.stats, recoverable:cached.recoverable,
-        hostActive:liveTurnActive||verificationRunning,
+        hostActive:liveTurnActive||verificationRunning, singleRun:cached.singleRun,
         context, config: cached.config, pauseReason: cached.pauseReason,
         history: cached.history.slice(0, 12) },
       ...(webAck ? { ack: webAck } : {})
@@ -193,13 +193,15 @@ async function syncWebAction($) {
       if (op.type === 'configure') { settingsGuard(state,op.base); return configure(state,op.updates); }
       if (op.type === 'retry-last') { if(state.running)throw new Error('running'); return retryLast(state,now); }
       if (op.type === 'recover') return recoverWithHost(state);
+      if (op.type === 'run-one') return runOne({...state,busy:state.busy||liveTurnActive},op.id);
+      if (op.type === 'cancel-one') return cancelOne(state);
       if (op.type === 'pause') return { ...state, paused: true };
       if (op.type === 'resume') { if(state.recoverable)throw new Error('recoveryState'); return { ...state, paused: false }; }
       throw new Error('Unknown browser operation');
     });
     webAck = { id: item.id, ok: true };
     // A pause/resume/add may enable the next task if Claude is idle.
-    if (['resume', 'add'].includes(item.operation.type)) scheduleNext($);
+    if (['resume', 'add', 'run-one'].includes(item.operation.type)) scheduleNext($);
   } catch (error) {
     webAck = { id: item.id, ok: false, error: String(error.message ?? error) };
   }
@@ -424,7 +426,7 @@ async function perform($, text) {
     try { await $.ui.close({ id: PANE_ID }); } catch {}
     return '';
   }
-  if (intent.type === 'help') { if(language==='tr')return HELP_TR; if(language==='en')return HELP; const t=uiStrings(language); return [['/qm',t.title],['/qm add / batch',t.addButton],['/qm repeat',t.repeatButton],['/qm pause',t.pause],['/qm resume',t.resume],['/qm edit / rm / mv',t.edit+' / '+t.remove+' / '+t.moveTop],['/qm clear / undo',t.clear+' / '+t.undo],['/qm verify / retry / timeout',t.verifyLabel+' / '+t.retryLabel+' / '+t.timeoutLabel],['/qm context',t.contextLabel],['/qm if success|failure',t.verifyLabel],['/qm history / stats',t.historyLabel+' / '+t.analytics],['/qm sessions / recover / restore',t.sessionsLabel],['/qm web',t.openWeb],['/qm lang',t.language]].map(x=>x.join(' — ')).join('\n'); }
+  if (intent.type === 'help') { if(language==='tr')return HELP_TR; if(language==='en')return HELP; const t=uiStrings(language); return [['/qm',t.title],['/qm add / batch',t.addButton],['/qm repeat',t.repeatButton],['/qm run / run cancel',t.runOne],['/qm pause',t.pause],['/qm resume',t.resume],['/qm edit / rm / mv',t.edit+' / '+t.remove+' / '+t.moveTop],['/qm clear / undo',t.clear+' / '+t.undo],['/qm verify / retry / timeout',t.verifyLabel+' / '+t.retryLabel+' / '+t.timeoutLabel],['/qm context',t.contextLabel],['/qm if success|failure',t.verifyLabel],['/qm history / stats',t.historyLabel+' / '+t.analytics],['/qm sessions / recover / restore',t.sessionsLabel],['/qm web',t.openWeb],['/qm lang',t.language]].map(x=>x.join(' — ')).join('\n'); }
   if (intent.type === 'web') return startWeb($);
   if (intent.type === 'web-stop') { await stopWeb($); return 'QM: web dashboard stopped'; }
   if (intent.type === 'sessions') return listSessions($);
@@ -456,6 +458,8 @@ async function perform($, text) {
       case 'clear': return clear(state);
       case 'undo': return undo(state);
       case 'recover': return recoverWithHost(state);
+      case 'run-one': return runOne({...state,busy:state.busy||liveTurnActive},state.pending[intent.position-1]?.id);
+      case 'cancel-one': return cancelOne(state);
       case 'pause': return { ...state, paused: true, pauseReason: 'user' };
       case 'resume': {
         if (state.transferredTo) throw new Error('Queue was transferred to another session.');
@@ -465,7 +469,9 @@ async function perform($, text) {
       default: throw new Error('Unsupported queue action');
     }
   });
-  if (intent.type === 'add' || intent.type === 'resume') scheduleNext($);
+  if (intent.type === 'add' || intent.type === 'resume' || intent.type === 'run-one') scheduleNext($);
+  if(intent.type==='run-one')return uiStrings(language).singleQueued;
+  if(intent.type==='cancel-one')return uiStrings(language).cancelSingle;
   if (intent.type === 'config') return `QM: ${JSON.stringify(updated.config)} (takes effect on subsequent turns)`;
   if (intent.type === 'add') return `QM: ${intent.texts.length} added; ${updated.pending.length} pending${intent.when ? ` (if ${intent.when})` : ''}`;
   if (intent.type === 'recover') return 'QM: in-flight task recovered; queue paused. Review then /qm resume';
@@ -475,7 +481,7 @@ async function perform($, text) {
 
 async function safePerform($, args) {
   try { return await perform($, args); }
-  catch (error) { return 'QM error: ' + String(error?.message ?? error); }
+  catch (error) { const key=error?.message;return 'QM error: '+(['singleMissing','singleBusy','recoveryState'].includes(key)?uiStrings(language)[key]:String(key??error)); }
 }
 
 const shortened = (text, limit = 92) => text.length <= limit ? text : text.slice(0, limit - 3) + '...';
@@ -497,6 +503,13 @@ async function act($, command) {
   notify($, result);
   redraw($);
   return result;
+}
+
+async function runSelected($,id) {
+  const t=uiStrings(language);
+  try{await change($,state=>runOne({...state,busy:state.busy||liveTurnActive},id));notify($,t.singleQueued);scheduleNext($);}
+  catch(error){notify($,'QM: '+(t[error.message]||error.message));}
+  redraw($);
 }
 
 async function drawBand($, e, next) {
@@ -601,7 +614,8 @@ async function buildPane($, e) {
   const contextLine = node(Text, `${t.contextLabel}: ${context ? `${context.percent}% (${context.tokens}/${context.window})` : t.contextMissing} · ${t.verifyLabel}: ${state.config.verify === 'off' ? t.off : state.config.verify} · ${t.retryLabel}: ${state.config.retries} · ${t.timeoutLabel}: ${state.config.timeoutMs ? `${Math.round(state.config.timeoutMs/1000)}s` : t.off}`, { dimColor: true });
   const pauseNames = language === 'tr' ? {user:'kullanıcı duraklattı',interrupted:'tur kesildi',failure:'başarısız görev',timeout:'süre sınırı',unknown:'sonuç bilinmiyor','verify-unknown':'doğrulama belirsiz','session-cleared':'yeni oturumda inceleme bekliyor','submit-rejected':'görev gönderimi reddedildi',recovery:'kurtarma gerekiyor','recovered-needs-review':'kurtarıldı; inceleme bekliyor','restored-needs-review':'taşındı; inceleme bekliyor','manual-retry':'elle yeniden deneme'} : {};
   const genericReason = language!=='en' && language!=='tr' ? ({timeout:t.timeoutLabel,failure:t.failure,'verify-unknown':t.verifyLabel,recovery:t.recover,'session-cleared':t.sessionsLabel,interrupted:t.pause,user:t.pause}[state.pauseReason] || t.paused) : null;
-  const reason = genericReason ?? pauseNames[state.pauseReason] ?? (language === 'tr' && state.pauseReason?.startsWith('context:') ? `bağlam eşiği %${state.pauseReason.split(':')[1]}` : state.pauseReason);
+  const singleReason=({'single-task-complete':t.singleDone,'single-task-skipped':t.singleSkipped,'single-task-cancelled':t.singleMissing})[state.pauseReason];
+  const reason = singleReason ?? genericReason ?? pauseNames[state.pauseReason] ?? (language === 'tr' && state.pauseReason?.startsWith('context:') ? `bağlam eşiği %${state.pauseReason.split(':')[1]}` : state.pauseReason);
   const pauseInfo = state.pauseReason ? node(Text, `${t.pauseReason}: ${reason}`, { color: 'yellow' }) : null;
   const recentOutcomes = state.history.slice(0, 4).map(item => node(Text,
     `#${item.id} ${({success:t.done,failure:t.failure||t.unavailable,timeout:t.timeoutLabel,unknown:t.unavailable,skipped:t.skipped||t.off})[item.status] || t.done} · ${Math.round((item.durationMs || 0)/1000)}s · ${shortened(item.text, 65)}`,
@@ -715,7 +729,7 @@ async function buildPane($, e) {
     ? block(Box, [node(Text, t.tasks || t.pending, { bold: true }),
       Box({ width: '100%', flexDirection: 'column', children: [Input({ key: 'qm-add-tasks', rows: inline ? 2 : 4, value: bulkDraft, ...(editId === null ? {autoFocus:true} : {}),
       placeholder: t.addHint, onInput: value => { bulkDraft = String(value ?? ''); },
-      onSubmit: queuePasted })] }), node(Text, state.paused || needsRecovery ? t.addPaused : t.addStarts, { dimColor: true })], { rowGap: 0 })
+      onSubmit: queuePasted })] }), node(Text, state.singleRun||state.running?.singleOnce||state.paused||needsRecovery?t.addPaused:t.addStarts, { dimColor: true })], { rowGap: 0 })
     : node(Text, '/qm batch task 1 || task 2');
 
   const repeatInput = Input
@@ -735,6 +749,7 @@ async function buildPane($, e) {
     node(Text, `${selection.length} ${t.selectedCount}`, { color: 'cyan' }),
     button(Button, 'qm-select-page', t.selectAll, () => { view.rows.forEach(x => selectedIds.add(x.id)); groupRemoveArmed = false; redraw($); }),
     button(Button, 'qm-deselect', t.deselectAll, () => { selectedIds.clear(); groupRemoveArmed = false; redraw($); }),
+    ...(selection.length===1&&!needsRecovery&&!state.singleRun&&!state.running?.singleOnce?[button(Button,'qm-run-selected',t.runOne,()=>runSelected($,selection[0].id),{variant:'primary'})]:[]),
     button(Button, 'qm-move-top', t.moveTop, () => actGroup($, 'top'), { disabled: !selection.length }),
     button(Button, 'qm-move-bottom', t.moveBottom, () => actGroup($, 'bottom'), { disabled: !selection.length }),
     button(Button, 'qm-remove-group', groupRemoveArmed ? t.confirmClear : t.removeSelected, () => {
@@ -801,12 +816,18 @@ async function buildPane($, e) {
     : null;
   const recoveryNotice=needsRecovery?block(Box,[node(Text,`${t.recoveryState}: ${shortened(state.running.text,140)}`,{color:'yellow',bold:true}),
     node(Text,t.recoveryHint,{color:'yellow'}),...(liveTurnActive||verificationRunning?[node(Text,t.recoveryWait,{dimColor:true})]:[])],{key:'qm-recovery-notice'}):null;
+  const singleTask=state.singleRun?state.pending.find(task=>task.id===state.singleRun.taskId):state.running?.singleOnce?state.running:null;
+  const singleNotice=state.singleRun||state.running?.singleOnce?block(Box,[
+    node(Text,`${state.singleRun?t.singleQueued:t.singleActive}: ${shortened(singleTask?.text||t.singleMissing,120)}`,{color:'cyan',bold:true}),
+    node(Text,t.singleHint,{dimColor:true}),...(state.singleRun?[button(Button,'qm-cancel-single',t.cancelSingle,()=>act($,'run cancel'))]:[])
+  ],{key:'qm-single-notice'}):null;
 
   return block(Box, [
     Box({ flexDirection: 'row', flexWrap: 'wrap', columnGap: 2, children: [title, langControl,
       button(Button, 'qm-close', t.close, () => act($, 'close'), { plain: true, hotkey: 'q', role: 'dismiss' }),
       button(Button, 'qm-side', t.side || t.openWeb, () => act($, 'side'), { plain: true })] }),
     stats, ...(expanded ? [actionRow] : [button(Button,'qm-toggle',state.paused?t.resume:t.pause,()=>act($,state.paused?'resume':'pause'),{variant:'primary',hotkey:'p'})]), ...(recoveryNotice?[recoveryNotice]:[]),
+    ...(singleNotice?[singleNotice]:[]),
     ...(needsRecovery?[]:state.running ? [active] : state.busy ? [node(Text,t.waiting,{dimColor:true})] : !inline && state.pending.length===0 ? [node(Text, t.empty, {dimColor:true})] : []),
     ...(expanded ? [node(Text, t.pauseHint, { dimColor: true })] : []),
     ...(pauseInfo ? [pauseInfo] : []), ...(confirmNotice ? [confirmNotice] : []),...(undoNotice?[undoNotice]:[]),
@@ -838,7 +859,7 @@ export function register(on) {
     detailsOpen = false;
     try {
       await $.command.register({ name: 'qm', description: 'Queue Manager: run tasks one by one without steering',
-        argumentHint: 'add | batch | repeat | verify | retry | timeout | context | if | history', immediate: true });
+        argumentHint: 'add | batch | run | repeat | verify | retry | timeout | context | if | history', immediate: true });
     } catch (error) {
       // Command registration failure must not silently prevent button access.
       reportStartupIssue($, 'command /qm', error);

@@ -57,6 +57,16 @@ test('web recovery gates resume and exposes the orphan without auto-dispatch',as
  assert.equal(app.getState().snapshot.running.text,'unfinished','acceptance does not imply recovery was saved');
 });
 
+test('web single-task request validates ID, recovery state and duplicate intent',async t=>{
+ const app=createDashboard({token:TOKEN}),port=await app.listen();t.after(()=>app.close());let state=enqueue(initialState('web-one'),['A','B']);
+ const snapshot=async revision=>fetch(api(port,'state'),options('POST',{revision,state}));await snapshot(1);
+ const post=id=>fetch(api(port,'action'),options('POST',{revision:app.getState().revision,operation:{type:'run-one',id}}));
+ assert.equal((await post(99)).status,400);assert.equal((await post('2')).status,400);
+ state={...state,recoverable:true};await snapshot(2);assert.equal((await post(2)).status,400);
+ state={...state,recoverable:false,singleRun:{taskId:1,waitForId:null}};await snapshot(3);assert.equal((await post(2)).status,400);
+ state={...state,singleRun:null};await snapshot(4);assert.equal((await post(2)).status,202);assert.deepEqual(app.getState().snapshot.pending.map(x=>x.id),[1,2]);
+});
+
 test('browser dashboard enforces token, loopback host, origin, revision, operation ack', async t => {
   const app = createDashboard({ token: TOKEN });
   const port = await app.listen();

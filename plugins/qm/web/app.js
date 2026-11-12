@@ -1,4 +1,4 @@
-import { LANGUAGES, EXTRA_MESSAGES, RECOVERY_MESSAGES, canonicalLocale } from '/locales.mjs';
+import { LANGUAGES, EXTRA_MESSAGES, RECOVERY_MESSAGES, SINGLE_MESSAGES, canonicalLocale } from '/locales.mjs';
 import { configDraft, parseSettings, configSignature, FORM_KEYS } from '/settings.mjs';
 import { settingsStrings } from '/settings-locales.mjs';
 // Browser-only UI; the authoritative queue lives in the Claude Code mod.
@@ -111,6 +111,7 @@ for(const [code,m] of Object.entries(EXTRA_MESSAGES))labels[code]={
  retryConnection:m.unavailable+' · '+m.retryLabel,stopped:m.sessionsLabel+' · '+m.unavailable+' · /qm web',missingContext:m.contextMissing,session:m.sessionsLabel,up:m.moveTop,down:m.moveBottom,selectTask:m.select,historyTitle:m.historyLabel+' / '+m.analytics};
 const t = () => labels[locale];
 for(const [code,messages] of Object.entries(RECOVERY_MESSAGES))Object.assign(labels[code],messages);
+for(const [code,messages] of Object.entries(SINGLE_MESSAGES))Object.assign(labels[code],messages);
 function toast(message, bad = false) {
   const el = $('toast'); el.textContent = message;
   el.style.borderColor = bad ? '#ba6271' : '#557388';
@@ -172,6 +173,12 @@ function render() {
   const focusKey = document.activeElement?.id;
   const m = t(); const s = snapshot;
   const recovering=Boolean(s?.running&&s?.recoverable);
+  const singleTask=s?.singleRun?s.pending.find(task=>task.id===s.singleRun.taskId):s?.running?.singleOnce?s.running:null;
+  $('single-panel').classList.toggle('hidden',!s?.singleRun&&!s?.running?.singleOnce);
+  $('single-title').textContent=`${s?.singleRun?m.singleQueued:m.singleActive}: ${singleTask?.text||m.singleMissing}`;
+  $('single-hint').textContent=m.singleHint;
+  $('cancel-single').textContent=m.cancelSingle;$('cancel-single').classList.toggle('hidden',!s?.singleRun);
+  $('cancel-single').disabled=!online||Boolean(pendingActionId);
   $('recovery-panel').classList.toggle('hidden',!recovering);
   $('recovery-title').textContent=m.recoveryState;
   $('recovery-task').textContent=recovering?s.running.text:'';
@@ -179,17 +186,18 @@ function render() {
   $('pending-count').textContent = s ? s.pending.length : '—';
   $('active-count').textContent = s ? Number(Boolean(s.running)&&!recovering) : '—';
   $('done-count').textContent = s ? (s.stats ? (s.stats.success||0)+(s.stats.failure||0)+(s.stats.timeout||0)+(s.stats.unknown||0) : s.done.length) : '—';
-  $('status').textContent = s ? recovering?m.recoveryState:s.paused ? m.paused : s.running ? m.running : s.busy ? m.working : m.ready : '—';
+  const singleReason=({'single-task-complete':m.singleDone,'single-task-skipped':m.singleSkipped,'single-task-cancelled':m.singleMissing})[s?.pauseReason];
+  $('status').textContent = s ? recovering?m.recoveryState:singleReason|| (s.paused ? m.paused : s.running ? m.running : s.busy ? m.working : m.ready) : '—';
   $('status').style.color=recovering||s?.paused?'var(--pause)':'var(--accent)';
   $('toggle-pause').textContent = recovering?m.recoveryAction:s?.paused ? m.resume : m.pause;
   $('toggle-pause').disabled = !online || !s || Boolean(pendingActionId);
   $('toggle-pause').classList.toggle('paused',Boolean(s?.paused));
   $('session-id').textContent=s?.sessionId?`${m.session}: ${s.sessionId}`:'—';
-  $('add-behavior').textContent=recovering||s?.paused?m.held:m.starts;
+  $('add-behavior').textContent=s?.singleRun||s?.running?.singleOnce||recovering||s?.paused?m.held:m.starts;
   $('repeat-add').disabled=!online||!s||Boolean(pendingActionId);
   $('add-tasks').disabled = !online || !s || Boolean(pendingActionId);
   $('active-title').textContent = recovering?m.recoveryState:s?.running?.text || m.activeEmpty;
-  $('active-subtitle').textContent = m.activeDesc;
+  $('active-subtitle').textContent = s?.running?.singleOnce?m.singleHint:m.activeDesc;
   $('context-panel').textContent = `${m.contextName}: ${s?.context ? `${s.context.percent}% (${s.context.tokens}/${s.context.window})` : m.missingContext}`;
   const counts = s?.stats;
   $('stats-panel').textContent = counts ? `${counts.success} ${m.passed} • ${(counts.failure||0)+(counts.timeout||0)} ${m.failedCount} • ${counts.retried||0} ${m.retried} • ${counts.skipped||0} ${m.skipped}` : '—';
@@ -202,6 +210,9 @@ function render() {
   const items = s?.pending || [];
   for (const id of selected) if (!items.some(x => x.id === id)) selected.delete(id);
   const selection = selectedIds();
+  $('run-selected').textContent=m.runOne;$('run-selected').title=m.singleHint;
+  $('run-selected').classList.toggle('hidden',selection.length!==1||recovering||Boolean(s?.singleRun)||Boolean(s?.running?.singleOnce));
+  $('run-selected').disabled=!online||Boolean(pendingActionId);
   $('selected-badge').textContent = selection.length ? `(${selection.length})` : '';
   $('selected-label').textContent = `${selection.length} ${m.selected}`;
   $('batch-actions').classList.toggle('hidden', !selection.length);
@@ -306,7 +317,7 @@ async function action(operation) {
     render();
     return true;
   } catch (error) {
-    const settingsError=settingsStrings(locale)[error.message]||RECOVERY_MESSAGES[locale]?.[error.message];
+    const settingsError=settingsStrings(locale)[error.message]||RECOVERY_MESSAGES[locale]?.[error.message]||SINGLE_MESSAGES[locale]?.[error.message];
     if(operation.type==='configure'&&settingsEditor)settingsEditor.error=settingsError||settingsStrings(locale).error+': '+error.message;
     toast(error.status===409?t().stale:settingsError||error.message,true);await refresh();return false;
   }
@@ -341,6 +352,8 @@ $('select-all').onclick = () => {
 $('move-top').onclick=()=>moveGroup('top');
 $('move-bottom').onclick=()=>moveGroup('bottom');
 $('delete-selected').onclick=confirmDelete;
+$('run-selected').onclick=()=>{const ids=selectedIds();if(ids.length===1)void action({type:'run-one',id:ids[0]});};
+$('cancel-single').onclick=()=>void action({type:'cancel-one'});
 $('cancel-confirm').onclick=dismissDelete;
 $('confirm-delete').onclick=()=>{dismissDelete();void action({type:'remove',ids:modalSelection});};
 $('overlay').onclick=e=>{if(e.target===$('overlay'))dismissDelete();};

@@ -1,3 +1,11 @@
+## 0.8.0 — Run one selected task
+
+- Add Run selected task only to native/CLI and web multi-selection controls when exactly one pending task is selected. Add `/qm run <position>` and `/qm run cancel`.
+- Reserve the selected stable ID, wait for existing work and its configured retries, then run only that task. Pause the remaining queue after it finishes, fails or is conditionally skipped.
+- Preserve conditional checks, context limits, retry delays, interruption/recovery and revision-checked web operations. Invalid or removed targets never fall through to a different task.
+- Show a localized queued/running notice and cancellation for a pending single-task request in all 20 interface languages. Cancellation leaves tasks intact and the queue paused.
+- Add state-machine, actual mod/web bridge and official host coverage for one-task execution, live-turn waiting, cancellation, failed writes, dropped submissions and duplicate clicks. Extend Playwright captures and interactions.
+
 ## 0.7.4 — Recovery always remains available
 
 - Keep Recover task visible for every orphan, including zero pending tasks and a tracked live Claude turn. Recovery returns the task to the front, pauses the queue and preserves live-turn busy state; it never interrupts or dispatches that turn.

@@ -274,6 +274,16 @@ test('web bridge applies a browser reorder to real session queue before resuming
   assert.equal(resume.status,202);
   await tick(); await flush();
   assert.deepEqual(h.sent.map(x=>x.text),['beta']);
+  await h.emit('turn.start',{turnId:'web-beta'});state=await getState();
+  const gamma=state.state.pending.find(x=>x.text==='gamma').id;
+  const one=await fetch(u.origin+'/api/action',{
+    method:'POST',headers:{'x-qm-token':tok,'content-type':'application/json'},
+    body:JSON.stringify({revision:state.revision,operation:{type:'run-one',id:gamma}})
+  });
+  assert.equal(one.status,202);await tick();await flush();assert.equal(h.sent.length,1);
+  await h.emit('turn.complete',{turnId:'web-beta',reason:'answer',answer:'Done'});await flush();assert.deepEqual(h.sent.map(x=>x.text),['beta','gamma']);
+  await h.emit('turn.start',{turnId:'web-gamma'});await h.emit('turn.complete',{turnId:'web-gamma',reason:'answer',answer:'Done'});await flush();state=await getState();
+  assert.equal(state.state.paused,true);assert.deepEqual(state.state.pending.map(x=>x.text),['alpha']);assert.equal(h.sent.length,2);
   const stopped=await h.emit('command.run',{args:'web stop'},{command:'qm'});
   assert.match(stopped.text,/stopped/);
 });

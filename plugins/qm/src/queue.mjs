@@ -32,7 +32,7 @@ export function initialState(sessionId, now = Date.now()) {
     version: VERSION, sessionId, pending: [], running: null, done: [], history: [],
     nextId: 1, paused: false, busy: false, undo: [], updatedAt: now,
     config: { ...DEFAULT_CONFIG }, stats: initialStats(), lastOutcome: null,
-    context: null, pauseReason: null, transferredTo: null, recoverable: false
+    context: null, pauseReason: null, transferredTo: null, recoverable: false, singleRun:null
   };
 }
 
@@ -45,7 +45,10 @@ export function normalizeState(raw, sessionId, now = Date.now()) {
   state.history = Array.isArray(raw.history) ? raw.history.filter(validTask).slice(0, MAX_HISTORY)
     : [...state.done];
   state.running = validTask(raw.running) ? { ...raw.running, when: whenOf(raw.running), attempts: Math.max(1, Number(raw.running.attempts) || 1) } : null;
-  state.paused = raw.paused === true || Boolean(state.running); // A reloaded, in-flight task is never replayed automatically.
+  if(Number.isSafeInteger(raw.singleRun?.taskId)&&state.pending.some(t=>t.id===raw.singleRun.taskId)){
+    state.singleRun={taskId:raw.singleRun.taskId,waitForId:Number.isSafeInteger(raw.singleRun.waitForId)?raw.singleRun.waitForId:null};
+  }
+  state.paused = raw.paused === true || Boolean(state.running) || Boolean(raw.singleRun); // Reloaded work requires review.
   state.recoverable = Boolean(state.running);
   state.busy = Boolean(state.running);
   // Old snapshots did not retire started IDs. Their safety cannot be inferred
@@ -126,25 +129,52 @@ function archive(state, record) {
 function retireUndo(entries, id) {
   return entries.map(entry => ({ ...entry, pending: entry.pending.filter(task => task.id !== id) }));
 }
-export const canStart = (state, now = Date.now()) => !state.transferredTo && !state.paused && !state.busy && !state.running &&
-  state.pending.length > 0 && !(state.pending[0].notBefore > now);
+export function canStart(state,now=Date.now()) {
+  const candidate=state.singleRun?state.pending.find(t=>t.id===state.singleRun.waitForId)??state.pending.find(t=>t.id===state.singleRun.taskId):state.pending[0];
+  return !state.transferredTo&&!state.paused&&!state.busy&&!state.running&&Boolean(candidate)&&!(candidate.notBefore>now);
+}
+
+export function runOne(state,taskId) {
+  if(state.recoverable||state.transferredTo)throw new Error('recoveryState');
+  if(state.singleRun||state.running?.singleOnce)throw new Error('singleBusy');
+  if(!Number.isSafeInteger(taskId)||!state.pending.some(t=>t.id===taskId))throw new Error('singleMissing');
+  const task=state.pending.find(t=>t.id===taskId);
+  return {...state,pending:[task,...state.pending.filter(t=>t.id!==taskId)],singleRun:{taskId,waitForId:state.running?.id??null},paused:false,pauseReason:null};
+}
+export function cancelOne(state) {
+  if(!state.singleRun)throw new Error('singleMissing');
+  const pending=state.pending.map(task=>{if(task.id!==state.singleRun.taskId)return task;const {singleOnce,...rest}=task;return rest;});
+  return {...state,pending,singleRun:null,paused:true,pauseReason:'user'};
+}
 
 // A conditional task is evaluated against the last EXECUTED task's result.
 // Skipped tasks do not replace that result, so adjacent success/failure branches work.
 export function claim(state, now = Date.now()) {
   if (state.paused || state.busy || state.running || state.transferredTo) return { state, task: null };
   let next = state;
+  if(next.singleRun){
+    const target=next.pending.find(t=>t.id===next.singleRun.taskId);
+    if(!target)return {state:{...next,singleRun:null,paused:true,pauseReason:'single-task-cancelled'},task:null};
+    // Finish retries of the task that was already running before the manual request.
+    const predecessor=next.pending.find(t=>t.id===next.singleRun.waitForId);
+    const first=predecessor??target;
+    next={...next,pending:[first,...next.pending.filter(t=>t.id!==first.id)]};
+  }
   while (next.pending.length) {
     const [candidate, ...rest] = next.pending;
+    const single=next.singleRun?.taskId===candidate.id;
     if (whenOf(candidate) !== 'always' && whenOf(candidate) !== next.lastOutcome) {
       const skipped = { ...candidate, status: 'skipped', finishedAt: now, reason: `condition:${whenOf(candidate)}` };
       next = archive({ ...next, pending: rest, stats: { ...next.stats, skipped: next.stats.skipped + 1 } }, skipped);
+      if(single)return {state:{...next,singleRun:null,paused:true,pauseReason:'single-task-skipped'},task:null};
       continue;
     }
     if (candidate.notBefore > now) return { state: next, task: null, waitMs: candidate.notBefore - now };
     const running = { ...candidate, attempts: (candidate.attempts || 0) + 1, startedAt: now,
+      ...(single?{singleOnce:true}:{}),
       contextAtStart: next.context ? { ...next.context } : null };
     next = { ...next, pending: rest, running, busy: true, updatedAt: now, recoverable: false,
+      singleRun:single?null:next.singleRun,
       undo: retireUndo(next.undo, running.id) };
     return { state: next, task: running };
   }
@@ -160,11 +190,13 @@ export function settleTurn(state, outcome, now = Date.now(), details = {}) {
   if (status === 'aborted') {
     const { startedAt, contextAtStart, notBefore, ...task } = running;
     return { ...base, pending: [{ ...task }, ...state.pending], paused: true,
+      singleRun:running.singleOnce?{taskId:running.id,waitForId:null}:state.singleRun,
       pauseReason: 'interrupted', stats: { ...state.stats, interrupted: state.stats.interrupted + 1 } };
   }
   if (['failure','timeout'].includes(status) && running.attempts <= state.config.retries) {
     const { startedAt, contextAtStart, ...task } = running;
     return { ...base, pending: [{ ...task, notBefore: now + state.config.retryDelayMs }, ...state.pending],
+      singleRun:running.singleOnce?{taskId:running.id,waitForId:null}:state.singleRun,
       stats: { ...state.stats, retried: state.stats.retried + 1 }, pauseReason: state.paused ? state.pauseReason : null };
   }
   const record = { ...running, status, durationMs, finishedAt: now,
@@ -172,8 +204,10 @@ export function settleTurn(state, outcome, now = Date.now(), details = {}) {
     contextAtEnd: state.context ? { ...state.context } : null };
   const stats = { ...state.stats, [status]: state.stats[status] + 1,
     durationMs: state.stats.durationMs + durationMs };
-  const resolved = archive({ ...base, stats, lastOutcome: status === 'success' ? 'success' : status === 'unknown' ? 'unknown' : 'failure' }, record);
+  const singleRun=state.singleRun?.waitForId===running.id?{...state.singleRun,waitForId:null}:base.singleRun;
+  const resolved = archive({ ...base, stats, singleRun, lastOutcome: status === 'success' ? 'success' : status === 'unknown' ? 'unknown' : 'failure' }, record);
   if (state.paused) return { ...resolved, paused: true, pauseReason: state.pauseReason };
+  if(running.singleOnce)return {...resolved,singleRun:null,paused:true,pauseReason:status==='success'?'single-task-complete':status==='unknown'?'verify-unknown':status};
   if (status === 'success') return { ...resolved, pauseReason: null };
   return { ...resolved, paused: status === 'unknown' || state.config.onFail === 'pause',
     pauseReason: status === 'unknown' ? 'verify-unknown' : state.config.onFail === 'pause' ? status : null };
@@ -213,6 +247,7 @@ export function rejectSubmission(state, taskId) {
   if (state.running?.id !== taskId) return state;
   const { startedAt, contextAtStart, notBefore, ...task } = state.running;
   return { ...state, running: null, pending: [task, ...state.pending], paused: true,
+    singleRun:state.running.singleOnce?{taskId:taskId,waitForId:null}:state.singleRun,
     pauseReason: 'submit-rejected', busy: false };
 }
 export function recover(state) {
@@ -220,6 +255,7 @@ export function recover(state) {
   if (!state.recoverable) throw new Error('Task is still live. Recover is only for an orphaned task after restarting its session.');
   const { startedAt, contextAtStart, notBefore, ...task } = state.running;
   return { ...state, running: null, busy: false, recoverable: false, paused: true,
+    singleRun:state.running.singleOnce?{taskId:state.running.id,waitForId:null}:state.singleRun,
     pauseReason: 'recovered-needs-review', pending: [task, ...state.pending] };
 }
 export function removeByIds(state, ids) {

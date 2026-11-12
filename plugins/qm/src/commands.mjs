@@ -23,6 +23,9 @@ export function parseCommand(raw = '') {
   if (/^(resume|start|go)$/i.test(args)) return { type: 'resume' };
   if (/^clear$/i.test(args)) return { type: 'clear' };
   if (/^undo$/i.test(args)) return { type: 'undo' };
+  if(/^run\s+cancel$/i.test(args))return {type:'cancel-one'};
+  const run=/^run\s+(\d+)$/i.exec(args);
+  if(run){const position=Number(run[1]);if(!Number.isSafeInteger(position)||position<1)throw new Error('Use: /qm run <pending position>');return {type:'run-one',position};}
   if (/^recover$/i.test(args)) return { type: 'recover' };
   if (/^web$/i.test(args)) return { type: 'web' };
   if (/^(?:web\s+stop)$/i.test(args)) return { type: 'web-stop' };
@@ -88,7 +91,7 @@ export function parseCommand(raw = '') {
   if (mv) return { type: 'mv', from: num(mv[1]), to: num(mv[2]) };
   const edit = /^edit\s+(\S+)\s+([\s\S]+)$/i.exec(args);
   if (edit) return { type: 'edit', position: num(edit[1]), text: edit[2] };
-  if (/^(repeat|batch|mv|move|rm|remove|delete|edit|front|before|verify|retry|timeout|context|onfail|if|restore|history|lang|web)\b/i.test(args)) {
+  if (/^(run|repeat|batch|mv|move|rm|remove|delete|edit|front|before|verify|retry|timeout|context|onfail|if|restore|history|lang|web)\b/i.test(args)) {
     throw new Error('Incomplete command; see /qm help. Use /qm -- <text> to queue literal text.');
   }
   return { type: 'add', texts: [args] };
@@ -107,6 +110,7 @@ export const HELP = [
   '/qm add <task>               Queue one task',
   '/qm repeat 20 devam et      Queue 20 separate turns (max 200)',
   '/qm batch A || B || C       Queue tasks in order (max 200)',
+  '/qm run 2 | run cancel     Run only pending position 2, then pause / cancel request',
   '/qm if success <task>       Run only after the last executed task succeeded',
   '/qm if failure <task>       Run only after the last executed task failed',
   '/qm verify off|marker|ai    Opt-in completion verification (AI adds cost)',
@@ -139,6 +143,7 @@ export const HELP_TR = [
 '/qm add <görev> — Tek görev ekle',
 '/qm repeat <1-200> <görev> — Ayrı turlarda tekrarla',
 '/qm batch A || B — Sıralı toplu ekleme',
+'/qm run 2 | run cancel — Yalnızca bekleyen 2. görevi çalıştır / isteği iptal et',
 '/qm pause | resume — Sonraki görevi beklet / devam ettir',
 '/qm mv 3 1 | rm 2 | edit 2 <metin> — Sırala / sil / düzenle',
 '/qm clear | undo — Bekleyenleri sil / son değişikliği geri al',

@@ -67,6 +67,21 @@ Bekleyen sıra yukarıdan aşağıya **1 → 2 → 3** şeklindedir. **Sıradaki
 
 Düzenleyici panelin üst kısmında tam genişlikte açılır: yan panelde **10**, prompt üstünde **6 satır**. Uzun ve çok satırlı metni **Değişikliği kaydet** düğmesiyle uygula; giriş alanının gönderme işlemi tek başına kaydetmez.
 
+## Yalnızca seçili görevi çalıştır
+
+Görevin yanındaki kutudan **tek bir bekleyen görev seç**, ardından **Yalnızca seçili görevi çalıştır** düğmesine bas. Prompt üstündeki panel, yan panel ve webde kullanılabilir.
+
+Görev başa alınır ve çalışan turun bitmesini bekler. O anda çalışan kuyruk görevinin retry kuralları korunur; başarısızlık politikası seçilen görevden önce duraklatabilir. Seçilen görev bittikten sonra diğerleri duraklatılır. Koşul, bağlam eşiği, doğrulama ve sınırlı retry kuralları geçerlidir. Koşul sağlanmazsa seçilen görev atlanıp duraklatılır; başka göreve geçilmez.
+
+Bekleme bildirimindeki **Tek görev isteğini iptal et**, görevi silmeden kuyruğu duraklatır. Çalışan görevi kesmez. Görev hiçbir zaman aktif tura zorla gönderilmez. Yeniden başlatma sonrasında tek-görev isteği de inceleme için duraklatılmış kalır.
+
+Komut karşılığı, mevcut bekleyen sıra numarasıyla:
+
+```text
+/qm run 2
+/qm run cancel
+```
+
 ## 5 veya 20 tekrar ekleme
 
 **Adet** alanına 5 ya da 20, **Mesaj** alanına gönderilecek görevi yaz ve **Tekrarla** düğmesine bas. Aynı işlemin komut karşılığı:
@@ -143,6 +158,7 @@ Normal `/qm` komut argümanları modelin okuyacağı komut kaydından çıkarıl
 | `/qm add <görev>`, `/qm front <görev>` | Sona / başa görev ekle |
 | `/qm batch A \|\| B \|\| C` | Farklı görevleri sırayla ekle |
 | `/qm repeat 5 <mesaj>` | Aynı mesajı 5 kez ekle |
+| `/qm run 2`, `/qm run cancel` | Yalnızca bekleyen 2. görevi çalıştır / bekleyen isteği iptal et |
 | `/qm pause`, `/qm resume` | Sonraki görevi beklet / devam ettir |
 | `/qm edit 2 <metin>`, `/qm rm 2`, `/qm mv 3 1` | Bekleyen görev düzenle, sil, taşı |
 | `/qm clear`, `/qm undo` | Bekleyenleri sil / kuyruk düzenlemesini geri al |

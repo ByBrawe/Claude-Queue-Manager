@@ -20,6 +20,20 @@ test('official host registers Claude queue tool and protects the active turn',as
 // These exercise Claude's real element constructors and hook dispatch, rather
 // than identity-function stand-ins for Input, Button, and Box.
 for (const surface of ['terminal', 'desktop'] as const) {
+  test(`${surface}: selecting one task exposes run-once and cancellable waiting UI`,async($,on)=>{
+    mock.clock(on);mock.store(on,{'claude-queue-manager:queue:single-native':{...enqueue(initialState('single-native'),['A','B','C']),paused:true}})
+    on('session.id',()=>({value:'single-native'}));on('session.usage',()=>({value:null}))
+    on('turn.start',($,e)=>({turnId:e.turnId}));on('ui.log',()=>({value:undefined}));on('ui.toast',()=>({value:undefined}));on('ui.close',()=>({value:undefined}))
+    on('ui.render',()=>({type:'Text',props:{},children:[]}))
+    await $.command.run({command:'qm',args:''});await $.turn.start({turnId:'ordinary-one',text:'Existing work'})
+    const panel=await $.ui.mount({plugin:'qm',component:'AbovePrompt',requestId:'single-ui',surface,viewport:{columns:48,rows:40},props:{bodyColumns:48,hasSurvey:false}})
+    expect(await panel.find({key:'qm-run-selected'})).toBeUndefined()
+    await panel.press({key:'qm-check-3'});expect(await panel.find({key:'qm-run-selected'})).toBeDefined()
+    await panel.press({key:'qm-run-selected'});expect(await panel.find({key:'qm-single-notice'})).toBeDefined()
+    expect(await panel.find({key:'qm-cancel-single'})).toBeDefined()
+    await panel.press({key:'qm-cancel-single'});expect(await panel.find({key:'qm-single-notice'})).toBeUndefined()
+    await panel.unmount()
+  })
   test(`${surface}: orphan recovery control is available above the prompt`,async($,on)=>{
     mock.clock(on)
     const saved={...enqueue(initialState('orphan-native'),['A','B']),running:{id:3,text:'Interrupted task',attempts:1},nextId:4}
