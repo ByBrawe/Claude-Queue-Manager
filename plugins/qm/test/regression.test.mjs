@@ -41,12 +41,13 @@ test('full composer workspace shows repeats and pending actions without Details'
   const pane=await h.emit('ui.render',{component:'Pane',props:{bodyColumns:48},surface:'desktop'},{component:'Pane',requestId:'qm'});
   assert.ok(find(pane,'qm-repeat-count'));assert.ok(find(pane,'qm-repeat-message'));
   const ui=await h.emit('ui.render',{component:'AbovePrompt',props:{bodyColumns:48},surface:'desktop'},{component:'AbovePrompt'});
-  for(const key of ['qm-toggle','qm-undo','qm-clear','qm-web-open','qm-side','qm-language','qm-add-tasks','qm-repeat-count','qm-repeat-message'])assert.ok(find(ui,key),key);
+  for(const key of ['qm-toggle','qm-clear','qm-web-open','qm-side','qm-language','qm-add-tasks','qm-repeat-count','qm-repeat-message'])assert.ok(find(ui,key),key);
+  assert.equal(find(ui,'qm-undo'),undefined,'no undo action for an empty edit history');
   find(ui,'qm-repeat-count').onInput(String(count));find(ui,'qm-repeat-message').onInput('continue carefully');
   await find(ui,'qm-repeat-action').onPress();
   assert.equal(h.state().pending.length,count);assert.ok(h.state().pending.every(x=>x.text==='continue carefully'));assert.equal(h.sent.length,0);
   const queued=await h.emit('ui.render',{component:'AbovePrompt',props:{bodyColumns:48},surface:'desktop'},{component:'AbovePrompt'});
-  assert.ok(find(queued,'qm-search'));assert.ok(find(queued,'qm-edit-1'));assert.ok(find(queued,'qm-rm-1'));
+  assert.ok(find(queued,'qm-search'));assert.ok(find(queued,'qm-edit-1'));assert.ok(find(queued,'qm-rm-1'));assert.ok(find(queued,'qm-undo'));
   await find(queued,'qm-details').onPress();
   const detailed=await h.emit('ui.render',{component:'AbovePrompt',props:{bodyColumns:48},surface:'desktop'},{component:'AbovePrompt'});
   assert.ok(find(detailed,'qm-repeat-count'));assert.ok(find(detailed,'qm-rm-1'));

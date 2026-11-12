@@ -26,6 +26,7 @@ let repeatDraft = '';
 let editDraft = '';
 let editId = null;
 let clearArmed = false;
+let undoArmed = false;
 let groupRemoveArmed = false;
 const selectedIds = new Set();
 let web = null;
@@ -49,6 +50,12 @@ let repeatText = '';
 let carryOver = false;
 let verificationEpoch = 0;
 let activeTurnId = null;
+let liveTurnActive = false;
+
+// Recovery only requeues an orphan; it never interrupts or dispatches a live turn.
+function recoverWithHost(state) {
+  return {...recover(state),busy:liveTurnActive||verificationRunning};
+}
 
 function reportStartupIssue($, stage, error) {
   const reason = String(error?.message ?? error);
@@ -159,7 +166,7 @@ async function sendWebSnapshot($) {
       revision: webRevision,
       state: { sessionId: cachedSessionId, locale: language, pending: cached.pending, running: cached.running, done: cached.done,
         paused: cached.paused, busy: cached.busy, stats: cached.stats, recoverable:cached.recoverable,
-        hostActive:Boolean(activeTurnId)||verificationRunning,
+        hostActive:liveTurnActive||verificationRunning,
         context, config: cached.config, pauseReason: cached.pauseReason,
         history: cached.history.slice(0, 12) },
       ...(webAck ? { ack: webAck } : {})
@@ -185,7 +192,7 @@ async function syncWebAction($) {
       if (op.type === 'add') return enqueue(state, op.texts);
       if (op.type === 'configure') { settingsGuard(state,op.base); return configure(state,op.updates); }
       if (op.type === 'retry-last') { if(state.running)throw new Error('running'); return retryLast(state,now); }
-      if (op.type === 'recover') { if(activeTurnId||verificationRunning)throw new Error('recoveryWait'); return recover(state); }
+      if (op.type === 'recover') return recoverWithHost(state);
       if (op.type === 'pause') return { ...state, paused: true };
       if (op.type === 'resume') { if(state.recoverable)throw new Error('recoveryState'); return { ...state, paused: false }; }
       throw new Error('Unknown browser operation');
@@ -448,7 +455,7 @@ async function perform($, text) {
       case 'edit': return edit(state, intent.position, intent.text);
       case 'clear': return clear(state);
       case 'undo': return undo(state);
-      case 'recover': return recover(state);
+      case 'recover': return recoverWithHost(state);
       case 'pause': return { ...state, paused: true, pauseReason: 'user' };
       case 'resume': {
         if (state.transferredTo) throw new Error('Queue was transferred to another session.');
@@ -485,6 +492,7 @@ function redraw($) { $.ui.invalidate('ui.render'); }
 function notify($, result) { if (result) $.ui.toast(result); }
 async function act($, command) {
   clearArmed = false;
+  undoArmed = false;
   const result = await safePerform($, command);
   notify($, result);
   redraw($);
@@ -587,7 +595,7 @@ async function buildPane($, e) {
   const selection = state.pending.filter(x => selectedIds.has(x.id));
 
   const title = node(Text, `Queue Manager · ${status(state, t)}`, {
-    color: state.paused ? 'yellow' : state.running ? 'green' : 'cyan', bold: true
+    color: needsRecovery || state.paused ? 'yellow' : state.running ? 'green' : 'cyan', bold: true
   });
   const stats = node(Text, `${state.pending.length} ${t.pending} · ${state.running&&!needsRecovery ? 1 : 0} ${t.active}${needsRecovery ? ' · 1 '+t.recoveryState : ''} · ${state.stats.success} ${t.done}`, { dimColor: true });
   const contextLine = node(Text, `${t.contextLabel}: ${context ? `${context.percent}% (${context.tokens}/${context.window})` : t.contextMissing} · ${t.verifyLabel}: ${state.config.verify === 'off' ? t.off : state.config.verify} · ${t.retryLabel}: ${state.config.retries} · ${t.timeoutLabel}: ${state.config.timeoutMs ? `${Math.round(state.config.timeoutMs/1000)}s` : t.off}`, { dimColor: true });
@@ -655,16 +663,26 @@ async function buildPane($, e) {
     : node(Text, state.busy ? t.waiting : t.noActive, { dimColor: true });
 
   const actionRow = Box({ flexDirection: 'row', flexWrap: 'wrap', columnGap: 1, children: [
-    ...(needsRecovery&&!activeTurnId&&!verificationRunning?[button(Button,'qm-recover',t.recoveryAction,async()=>{
+    ...(needsRecovery?[button(Button,'qm-recover',t.recoveryAction,async()=>{
       try{
-        await change($,current=>{if(activeTurnId||verificationRunning)throw new Error(t.recoveryWait);return recover(current);});
+        await change($,current=>recoverWithHost(current));
         notify($,t.recoveryAction+' · '+t.paused);
       }catch(error){notify($,'QM error: '+error.message);}
       redraw($);
-    },{variant:'primary',disabled:Boolean(activeTurnId)||verificationRunning})]:[]),
+    },{variant:'primary'})]:[]),
     ...(!needsRecovery?[button(Button, 'qm-toggle', state.paused ? t.resume : t.pause,
       () => act($, state.paused ? 'resume' : 'pause'), { variant:'primary', hotkey:'p' })]:[]),
-    button(Button, 'qm-undo', t.undo, () => act($, 'undo'), { disabled: !state.undo.length }),
+    ...(!needsRecovery&&state.undo.length?[button(Button,'qm-undo',undoArmed?t.confirmUndo:t.undoQueue,async()=>{
+      if(!undoArmed){undoArmed=JSON.stringify(state.undo[0]);redraw($);return;}
+      const expected=undoArmed;
+      try{
+        await change($,current=>{
+          if(current.recoverable||JSON.stringify(current.undo[0])!==expected)throw new Error('stale');
+          return {...undo(current),paused:true,pauseReason:'user'};
+        });
+      }catch(error){notify($,error.message==='stale'?t.undoQueue+' · '+t.cancel:'QM error: '+error.message);}
+      undoArmed=false;redraw($);
+    }),...(undoArmed?[button(Button,'qm-cancel-undo',t.cancel,()=>{undoArmed=false;redraw($);})]:[])]:[]),
     button(Button, 'qm-clear', clearArmed ? t.confirmClear : t.clear, async () => {
       if (!clearArmed) { clearArmed = true; redraw($); return; }
       await act($, 'clear');
@@ -673,6 +691,7 @@ async function buildPane($, e) {
     button(Button, 'qm-web-open', t.openWeb, () => act($, 'web'))
   ] });
   const confirmNotice = clearArmed ? node(Text, t.clearWarn, { color: 'yellow' }) : null;
+  const undoNotice=undoArmed&&!needsRecovery&&state.undo.length?node(Text,`${t.undoQueue}: ${state.pending.length} → ${undo(state).pending.length} ${t.pending}`,{color:'yellow'}):null;
 
   const langControl = Select
     ? Select({ key: 'qm-language', label: t.language, options: SUPPORTED_UI_LANGUAGES,
@@ -696,7 +715,7 @@ async function buildPane($, e) {
     ? block(Box, [node(Text, t.tasks || t.pending, { bold: true }),
       Box({ width: '100%', flexDirection: 'column', children: [Input({ key: 'qm-add-tasks', rows: inline ? 2 : 4, value: bulkDraft, ...(editId === null ? {autoFocus:true} : {}),
       placeholder: t.addHint, onInput: value => { bulkDraft = String(value ?? ''); },
-      onSubmit: queuePasted })] }), node(Text, state.paused ? t.addPaused : t.addStarts, { dimColor: true })], { rowGap: 0 })
+      onSubmit: queuePasted })] }), node(Text, state.paused || needsRecovery ? t.addPaused : t.addStarts, { dimColor: true })], { rowGap: 0 })
     : node(Text, '/qm batch task 1 || task 2');
 
   const repeatInput = Input
@@ -781,7 +800,7 @@ async function buildPane($, e) {
     ? node(Text, `✓ ${t.done}: ${state.done.slice(0, 2).map(x => shortened(x.text, 45)).join(' · ')}`, { dimColor: true })
     : null;
   const recoveryNotice=needsRecovery?block(Box,[node(Text,`${t.recoveryState}: ${shortened(state.running.text,140)}`,{color:'yellow',bold:true}),
-    node(Text,t.recoveryHint,{color:'yellow'}),...(activeTurnId||verificationRunning?[node(Text,t.recoveryWait,{dimColor:true})]:[])],{key:'qm-recovery-notice'}):null;
+    node(Text,t.recoveryHint,{color:'yellow'}),...(liveTurnActive||verificationRunning?[node(Text,t.recoveryWait,{dimColor:true})]:[])],{key:'qm-recovery-notice'}):null;
 
   return block(Box, [
     Box({ flexDirection: 'row', flexWrap: 'wrap', columnGap: 2, children: [title, langControl,
@@ -790,7 +809,7 @@ async function buildPane($, e) {
     stats, ...(expanded ? [actionRow] : [button(Button,'qm-toggle',state.paused?t.resume:t.pause,()=>act($,state.paused?'resume':'pause'),{variant:'primary',hotkey:'p'})]), ...(recoveryNotice?[recoveryNotice]:[]),
     ...(needsRecovery?[]:state.running ? [active] : state.busy ? [node(Text,t.waiting,{dimColor:true})] : !inline && state.pending.length===0 ? [node(Text, t.empty, {dimColor:true})] : []),
     ...(expanded ? [node(Text, t.pauseHint, { dimColor: true })] : []),
-    ...(pauseInfo ? [pauseInfo] : []), ...(confirmNotice ? [confirmNotice] : []),
+    ...(pauseInfo ? [pauseInfo] : []), ...(confirmNotice ? [confirmNotice] : []),...(undoNotice?[undoNotice]:[]),
     ...(state.pending.length ? [Box({key:'qm-next-pending',width:'100%',flexDirection:'column',children:[node(Text,`${t.nextPending}: 1. ${shortened(state.pending[0].text,115)}`,{color:'cyan',bold:true})]}),
       node(Text,t.orderHint,{dimColor:true}),
       button(Button,'qm-show-next',t.showNext,()=>{page=0;searchText='';redraw($);},{plain:true})] : []),
@@ -806,7 +825,6 @@ async function buildPane($, e) {
     ...(expanded && view.totalPages > 1 ? [pages] : []),
     button(Button, 'qm-details', detailsOpen ? (t.hideDetails || t.close) : (t.details || t.analytics), () => { detailsOpen = !detailsOpen; redraw($); }, { plain: true }),
     ...(detailsOpen ? [contextLine, settingsForm, node(Text,t.keys,{dimColor:true}), advancedActions,
-      ...(state.undo.length && !state.pending.length && !state.running ? [button(Button, 'qm-empty-undo', t.undo, () => act($, 'undo'))] : []),
       ...(recent ? [recent] : []), ...recentOutcomes, node(Text, t.help, { dimColor: true })] : [])
   ], { rowGap: 1 });
 }
@@ -836,6 +854,7 @@ export function register(on) {
     try {
       const incomingSession = await $.session.id();
       if (cachedSessionId !== incomingSession) {
+        activeTurnId=null;liveTurnActive=false;undoArmed=false;
         page = 0; searchText = ''; bulkDraft = ''; repeatDraft = '';
         editDraft = ''; editId = null; clearArmed = false;
         groupRemoveArmed = false; selectedIds.clear();
@@ -854,6 +873,7 @@ export function register(on) {
   on('turn.start', async ($, e, next) => {
     if (e.agentId === undefined) {
       activeTurnId = e.turnId ?? null;
+      liveTurnActive = true;
       await change($, state => ({ ...state, busy: true,
         running: state.running && !state.running.turnId && !verificationRunning
           ? { ...state.running, turnId: e.turnId } : state.running }));
@@ -864,14 +884,19 @@ export function register(on) {
   on('turn.complete', async ($, e, next) => {
     const result = await next(e);
     if (e.agentId !== undefined) return result;
-    if (e.turnId && activeTurnId === e.turnId) activeTurnId = null;
+    if (!e.turnId || !activeTurnId || activeTurnId === e.turnId) { activeTurnId=null;liveTurnActive=false; }
     if (verificationRunning) return result;
     const state = await readState($);
     const epoch = verificationEpoch;
     const sessionId = cachedSessionId;
     const aborted = e.isAborted === true || (e.reason && e.reason !== 'answer');
+    // A new main turn cannot report success/failure for an orphan from before restart.
+    if(state.running&&state.recoverable){
+      await change($,s=>({...s,busy:liveTurnActive,paused:true}));
+      return result;
+    }
     if (!state.running) {
-      await change($, s => ({ ...s, busy: false }));
+      await change($, s => ({ ...s, busy: liveTurnActive }));
       if (!aborted) scheduleNext($);
       return result;
     }
@@ -895,7 +920,7 @@ export function register(on) {
       const sampled = usage ? recordContext(s, usage) : s;
       if (s.running?.id !== state.running.id) return s;
       const settled = settleTurn(sampled, outcome, t, { durationMs, reason: detail });
-      return activeTurnId ? { ...settled, busy: true } : settled;
+      return liveTurnActive ? { ...settled, busy: true } : settled;
     });
     if (web) await syncWebAction($);
     if (!updated.paused) scheduleNext($);
@@ -909,6 +934,7 @@ export function register(on) {
     managerOpen = false;
     detailsOpen = false;
     activeTurnId = null;
+    liveTurnActive = false;
     verificationEpoch++;
     verificationRunning = false;
     cancelRetryTimer();

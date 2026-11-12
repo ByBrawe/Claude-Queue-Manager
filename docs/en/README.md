@@ -145,6 +145,8 @@ The tool supports `list`, `add`, `reorder`, `remove`, `pause` and `resume`. It u
 
 Ordinary `/qm` command arguments are stripped from the model-readable command transcript. When you ask Claude to manage the queue through its tool, it can read the pending task text. Avoid recursively queuing queue-management prompts.
 
+**Undo last queue edit** is separate from recovery. It is hidden while an orphan needs recovery. Otherwise it previews the pending-count change and asks for confirmation; UI undo leaves the queue paused. Repeated undo can reverse task additions, so review the count before confirming.
+
 ## Command reference
 
 | Command | Purpose |
@@ -173,9 +175,9 @@ Ordinary `/qm` command arguments are stripped from the model-readable command tr
 
 ## Recover after a restart
 
-If the computer or Code session restarts with an unfinished task, the panel shows **Recovery needed**. The orphan is counted separately from active work. Near the top, choose **Return task to queue** to put it ahead of pending tasks. This does not start it: review the list, then choose **Resume**. The web dashboard offers the same action.
+If the computer or Code session restarts with an unfinished task, the panel shows **Recovery needed**. The orphan is counted separately from active work. Near the top, choose **Recover task** to put it ahead of pending tasks. This does not start it: review the list, then choose **Resume**. The web dashboard offers the same action.
 
-Recovery may repeat work already performed before the interruption. If Claude has a tracked live turn, the recovery control waits for it to finish. The command equivalent is `/qm recover` followed by `/qm resume` after review.
+Recovery may repeat work already performed before the interruption. The recovery control remains visible during a live Claude turn. It requeues the orphan without interrupting that turn and keeps dispatch blocked until the live turn finishes. The command equivalent is `/qm recover` followed by `/qm resume` after review.
 
 ## Behavior and limits
 

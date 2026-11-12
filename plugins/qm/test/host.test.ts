@@ -25,9 +25,11 @@ for (const surface of ['terminal', 'desktop'] as const) {
     const saved={...enqueue(initialState('orphan-native'),['A','B']),running:{id:3,text:'Interrupted task',attempts:1},nextId:4}
     mock.store(on,{'claude-queue-manager:queue:orphan-native':saved})
     on('session.id',()=>({value:'orphan-native'}))
+    on('turn.start',($,e)=>({turnId:e.turnId}))
     on('ui.log',()=>({value:undefined}));on('ui.toast',()=>({value:undefined}));on('ui.close',()=>({value:undefined}))
     on('ui.render',()=>({type:'Text',props:{},children:[]}))
     await $.command.run({command:'qm',args:''})
+    await $.turn.start({turnId:'live-recovery-test',text:'Continue current work'})
     const panel=await $.ui.mount({plugin:'qm',component:'AbovePrompt',requestId:'recovery',surface,viewport:{columns:48,rows:40},props:{bodyColumns:48,hasSurvey:false}})
     expect(await panel.find({key:'qm-recovery-notice'})).toBeDefined()
     expect(await panel.find({key:'qm-toggle'})).toBeUndefined()

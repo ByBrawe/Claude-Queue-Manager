@@ -114,7 +114,6 @@ export function createDashboard({ token = randomBytes(32).toString('hex'), port 
         if(operation.type==='resume'&&snapshot.recoverable)throw new Error('recoveryState');
         if(operation.type==='recover'){
           if(!snapshot.recoverable||!snapshot.running)throw new Error('recoveryState');
-          if(snapshot.hostActive)throw new Error('recoveryWait');
         }
         waitingAction = { id: nextActionId++, revision, operation };
         return send(res, 202, { accepted: waitingAction.id });

@@ -31,7 +31,7 @@ const timer=setInterval(async()=>{
   if(op.type==='remove')state=removeByIds(state,op.ids);
   if(op.type==='configure'){settingsGuard(state,op.base);state=configure(state,op.updates);}
   if(op.type==='retry-last')state=retryLast(state);
-  if(op.type==='recover')state=recover(state);
+  if(op.type==='recover')state={...recover(state),busy:Boolean(state.hostActive)};
   if(op.type==='pause'||op.type==='resume')state={...state,paused:op.type==='pause'};
   await post({id:action.id,ok:true});
  }catch(e){await post({id:action.id,ok:false,error:e.message});}
@@ -89,7 +89,7 @@ try{
  await page.route('**/api/state',r=>r.abort());await page.waitForTimeout(1600);assert.equal(await page.locator('#connection-error').isVisible(),true);
  assert.equal(await page.locator('#add-tasks').isDisabled(),true);
  await page.unroute('**/api/state');await page.waitForTimeout(1600);assert.equal(await page.locator('#connection-error').isVisible(),false);
- state={...enqueue(initialState('recovery-qa'),['Pending A','Pending B']),running:{id:3,text:'Interrupted task after restart',attempts:1},nextId:4,paused:true,busy:true,recoverable:true};
+ state={...enqueue(initialState('recovery-qa'),['Pending A','Pending B']),running:{id:3,text:'Interrupted task after restart',attempts:1},nextId:4,paused:true,busy:true,recoverable:true,hostActive:true};
  await post();await page.goto(base+'/?qa='+revision+'#token='+token);await page.selectOption('#locale','tr');
  await page.waitForFunction(()=>!document.querySelector('#recovery-panel').classList.contains('hidden'));
  assert.equal(await page.innerText('#active-count'),'0');
@@ -100,7 +100,7 @@ try{
  });
  await page.click('#toggle-pause');await recoveryAck;
  await page.waitForFunction(()=>document.querySelector('#recovery-panel').classList.contains('hidden'));
- assert.equal(state.paused,true);assert.equal(state.pending[0].text,'Interrupted task after restart');assert.equal(state.running,null);
+ assert.equal(state.paused,true);assert.equal(state.pending[0].text,'Interrupted task after restart');assert.equal(state.running,null);assert.equal(state.busy,true);
  assert.deepEqual(errors,[]);
  await writeFile(`${out}/visual-results.json`,JSON.stringify({checks,settingsCaptures:6,recoveryCaptures:2,interactions:['multi-select','drag reorder','repeat','delete confirmation','settings save','settings conflict','settings defaults','restart recovery','disconnect','reconnect'],pageErrors:errors},null,2));
  console.log(`${checks.length} queue captures, 6 settings + 2 recovery captures and 10 interaction checks passed; no browser errors.`);

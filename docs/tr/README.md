@@ -132,6 +132,8 @@ Claude kuyruğu listeleyebilir, görev ekleyebilir, bekleyen kimlikleri sıralay
 
 Normal `/qm` komut argümanları modelin okuyacağı komut kaydından çıkarılır. Claude'dan kuyruğu aracıyla yönetmesini istediğinde bekleyen görev metinlerini okuyabilir. Kuyruğun içine tekrar kuyruk yönetimi yaptıran döngüsel görevler ekleme.
 
+**Son kuyruk değişikliğini geri al**, kurtarmadan ayrıdır ve kurtarma sırasında gösterilmez. Diğer durumlarda bekleyen sayısının nasıl değişeceğini gösterip onay ister; kuyruk duraklatılmış kalır. Art arda geri alma, görev eklemelerini de geri sarabilir; onaydan önce sayıyı incele.
+
 ## Komut rehberi
 
 | Komut | İşlev |
@@ -159,9 +161,9 @@ Normal `/qm` komut argümanları modelin okuyacağı komut kaydından çıkarıl
 
 ## Yeniden başlatmadan sonra kurtarma
 
-PC veya Code oturumu yarım kalan görevle yeniden açılırsa **Kurtarma bekliyor** görünür. Askıdaki görev aktif sayıdan ayrı gösterilir. Panelin üstündeki **Görevi kuyruğa geri al**, görevi bekleyenlerin başına koyar; otomatik çalıştırmaz. Listeyi inceleyip ardından **Devam ettir** seç. Web panelinde de aynı işlem vardır.
+PC veya Code oturumu yarım kalan görevle yeniden açılırsa **Kurtarma bekliyor** görünür. Askıdaki görev aktif sayıdan ayrı gösterilir. Panelin üstündeki **Görevi kurtar**, görevi bekleyenlerin başına koyar; otomatik çalıştırmaz. Listeyi inceleyip ardından **Devam ettir** seç. Web panelinde de aynı işlem vardır.
 
-Kurtarma, kapanmadan önce yapılmış işleri tekrarlayabilir. Claude’un izlenen canlı turu sürüyorsa önce bitmesi beklenir. Komut karşılığı inceleme sonrasında `/qm recover` ve ardından `/qm resume` işlemleridir.
+Kurtarma, kapanmadan önce yapılmış işleri tekrarlayabilir. Kurtar düğmesi canlı tur sırasında da görünür. Görev kuyruğa alınır ve kuyruk duraklatılır; çalışan tur kesilmez, o bitmeden yeni görev gönderilmez. Komut karşılığı inceleme sonrasında `/qm recover` ve ardından `/qm resume` işlemleridir.
 
 ## Sınırlar ve davranış
 

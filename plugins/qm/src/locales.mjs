@@ -31,6 +31,29 @@ const recoveryRows={
 export const RECOVERY_MESSAGES=Object.fromEntries(Object.entries(recoveryRows).map(([code,row])=>{
  const [recoveryState,recoveryAction,recoveryHint,recoveryWait]=row.split('|');return [code,{recoveryState,recoveryAction,recoveryHint,recoveryWait}];
 }));
+const recoveryBusy={
+ en:'Recovery keeps the current Claude turn running. Resume only after reviewing the queue.',tr:'Kurtarma çalışan Claude turunu kesmez. Kuyruğu inceleyip devam ettir.',
+ de:'Die Wiederherstellung unterbricht Claude nicht. Vor dem Fortsetzen die Warteschlange prüfen.',fr:'La récupération n’interrompt pas Claude. Vérifiez la file avant de reprendre.',
+ es:'La recuperación no interrumpe Claude. Revisa la cola antes de reanudar.',it:'Il recupero non interrompe Claude. Controlla la coda prima di riprendere.',
+ 'pt-BR':'A recuperação não interrompe Claude. Revise a fila antes de retomar.',ru:'Восстановление не прерывает Claude. Проверьте очередь перед продолжением.',
+ uk:'Відновлення не перериває Claude. Перевірте чергу перед продовженням.',pl:'Odzyskanie nie przerywa Claude. Sprawdź kolejkę przed wznowieniem.',
+ nl:'Herstel onderbreekt Claude niet. Controleer de wachtrij voor hervatten.',sv:'Återställning avbryter inte Claude. Granska kön innan du fortsätter.',
+ ja:'復旧してもClaudeの現在のターンは中断されません。再開前にキューを確認してください。',ko:'복구해도 현재 Claude 턴은 중단되지 않습니다. 재개 전에 대기열을 검토하세요.',
+ 'zh-CN':'恢复不会中断 Claude 当前轮次。继续前请检查队列。',ar:'الاستعادة لا تقاطع دور Claude الجاري. راجع القائمة قبل الاستئناف.',
+ hi:'पुनर्प्राप्ति Claude के वर्तमान टर्न को नहीं रोकती। जारी करने से पहले कतार जाँचें।',id:'Pemulihan tidak menghentikan giliran Claude. Tinjau antrean sebelum melanjutkan.',
+ vi:'Khôi phục không ngắt lượt Claude hiện tại. Kiểm tra hàng đợi trước khi tiếp tục.',fa:'بازیابی نوبت فعلی Claude را قطع نمی‌کند. پیش از ادامه صف را بررسی کنید.'
+};
+for(const [code,recoveryWait] of Object.entries(recoveryBusy))RECOVERY_MESSAGES[code].recoveryWait=recoveryWait;
+RECOVERY_MESSAGES.tr.recoveryAction='Görevi kurtar';RECOVERY_MESSAGES.en.recoveryAction='Recover task';
+const undoLabels={
+ en:'Undo last queue edit|Confirm undo',tr:'Son kuyruk değişikliğini geri al|Geri almayı onayla',de:'Letzte Warteschlangenänderung rückgängig|Rückgängig bestätigen',
+ fr:'Annuler la dernière modification de file|Confirmer l’annulation',es:'Deshacer último cambio de cola|Confirmar deshacer',it:'Annulla ultima modifica alla coda|Conferma annullamento',
+ 'pt-BR':'Desfazer última alteração da fila|Confirmar desfazer',ru:'Отменить последнее изменение очереди|Подтвердить отмену',uk:'Скасувати останню зміну черги|Підтвердити скасування',
+ pl:'Cofnij ostatnią zmianę kolejki|Potwierdź cofnięcie',nl:'Laatste wachtrijwijziging terugdraaien|Terugdraaien bevestigen',sv:'Ångra senaste köändringen|Bekräfta ångra',
+ ja:'最後のキュー変更を元に戻す|元に戻す操作を確認',ko:'마지막 대기열 변경 취소|취소 확인','zh-CN':'撤销上次队列更改|确认撤销',ar:'التراجع عن آخر تعديل للقائمة|تأكيد التراجع',
+ hi:'कतार का अंतिम बदलाव वापस लें|वापस लेने की पुष्टि करें',id:'Urungkan perubahan antrean terakhir|Konfirmasi urungkan',vi:'Hoàn tác thay đổi hàng đợi gần nhất|Xác nhận hoàn tác',fa:'واگرد آخرین تغییر صف|تأیید واگرد'
+};
+for(const [code,value] of Object.entries(undoLabels)){const [undoQueue,confirmUndo]=value.split('|');Object.assign(RECOVERY_MESSAGES[code],{undoQueue,confirmUndo});}
 const keys='ready paused running working pending active done pause resume addButton repeatButton count repeatMessage search edit save select selected selectAll deselectAll moveTop moveBottom remove undo clear confirm cancel prev next language details close openWeb contextLabel verifyLabel retryLabel timeoutLabel historyLabel analytics sessionsLabel unavailable off empty noActive'.split(' ');
 const rows={
 de:'Bereit|Pausiert|Läuft|Beschäftigt|Wartend|Aktiv|Abgeschlossen|Pausieren|Fortsetzen|Zur Warteschlange|Wiederholen|Anzahl|Nachricht wiederholen|Aufgaben suchen|Bearbeiten|Speichern|Auswählen|Ausgewählt|Seite auswählen|Auswahl aufheben|Nach oben|Nach unten|Löschen|Rückgängig|Wartende löschen|Bestätigen|Abbrechen|Zurück|Weiter|Sprache|Details|Schließen|Webansicht|Kontext|Prüfung|Wiederholungen|Zeitlimit|Verlauf|Statistik|Sitzungen|Nicht verfügbar|Aus|Keine wartenden Aufgaben. Füge eine Aufgabe hinzu.|Keine Aufgabe läuft.',

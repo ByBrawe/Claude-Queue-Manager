@@ -1,3 +1,10 @@
+## 0.7.4 — Recovery always remains available
+
+- Keep Recover task visible for every orphan, including zero pending tasks and a tracked live Claude turn. Recovery returns the task to the front, pauses the queue and preserves live-turn busy state; it never interrupts or dispatches that turn.
+- Clear live-turn tracking when a main completion omits its turn ID. Do not settle an orphan using an unrelated turn's completion.
+- Hide Undo during recovery and when there is no undo history. Rename it Undo last queue edit, preview the pending-count change, require confirmation and reject stale confirmations. Native UI undo leaves the queue paused.
+- Keep recovery yellow even if an earlier undo restored an unpaused snapshot. Update 20-language guidance and test the exact live-turn/zero-pending regression.
+
 ## 0.7.3 — Visible restart recovery
 
 - Show orphaned work as Recovery needed rather than an actively running task, with a prominent native/CLI notice and Return task to queue action near the top.
